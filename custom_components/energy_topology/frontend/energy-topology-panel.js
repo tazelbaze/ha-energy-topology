@@ -37,7 +37,37 @@ class EnergyTopologyPanel extends HTMLElement {
     this._items = result.items || [];
     this._canUndo = Boolean(result.can_undo);
     this._editing = false;
+    this._quantChecked = false;
+    this._quantIssues = [];
     this._render();
+  }
+
+  async _checkQuantities() {
+    const ids = [...(this._nodes?.keys() || [])];
+    if (!ids.length) return;
+    const start = new Date(Date.now() - 30 * 86400000).toISOString();
+    try {
+      const stats = await this._hass.callWS({
+        type: "recorder/statistics_during_period",
+        start_time: start,
+        statistic_ids: ids,
+        period: "day",
+        types: ["sum"],
+      });
+      const consumption = {};
+      for (const id of ids) {
+        const points = stats?.[id];
+        if (Array.isArray(points) && points.length >= 2) {
+          const first = points[0]?.sum;
+          const last = points[points.length - 1]?.sum;
+          if (typeof first === "number" && typeof last === "number") consumption[id] = last - first;
+        }
+      }
+      const result = await this._hass.callWS({ type: "energy_topology/check_quantities", consumption });
+      this._quantIssues = result.issues || [];
+      this._quantChecked = true;
+      this._render();
+    } catch (err) { this._banner(err); }
   }
 
   // ---- read-only actions --------------------------------------------------
@@ -176,7 +206,12 @@ class EnergyTopologyPanel extends HTMLElement {
     if (ancestry.has(node.id)) return `<li class="cycle">Cycle vers ${ESC(node.name)}</li>`;
     const next = new Set(ancestry); next.add(node.id);
     const errors = this._issues.filter((i) => i.node === node.id && i.severity === "error").length;
-    const badge = errors ? `<span class="badge error-badge">${errors}</span>` : `<span class="badge ok-badge">OK</span>`;
+    const warns = (this._quantIssues || []).filter((i) => i.node === node.id).length;
+    const badge = errors
+      ? `<span class="badge error-badge">${errors}</span>`
+      : warns
+        ? `<span class="badge warn-badge">${warns}</span>`
+        : `<span class="badge ok-badge">OK</span>`;
     const children = [...node.children].sort((a, b) => a.name.localeCompare(b.name));
     const link = node.parent_id ? `<span class="parent">inclus dans ${ESC(node.parent_id)}</span>` : `<span class="root">racine</span>`;
 
@@ -207,8 +242,12 @@ class EnergyTopologyPanel extends HTMLElement {
       ? `<section class="issues"><h2>Anomalies</h2>${errors.map((i) => `<div class="issue"><span class="pill error">erreur</span><strong>${ESC(i.node)}</strong> — ${ESC(i.message)}</div>`).join("")}</section>`
       : `<section class="success">Aucune boucle, parent absent ni auto-référence détectés.</section>`;
 
-    const actions = this._isAdmin
-      ? `<button id="edit">Éditer</button>${this._canUndo ? `<button id="undo" class="ghost">Revenir à l'état précédent</button>` : ""}`
+    const actions = `<button id="quant" class="ghost">Vérifier les quantités (30 j)</button>${this._isAdmin ? `<button id="edit">Éditer</button>${this._canUndo ? `<button id="undo" class="ghost">Revenir à l'état précédent</button>` : ""}` : ""}`;
+
+    const quantBlock = this._quantChecked
+      ? ((this._quantIssues || []).length
+        ? `<section class="issues"><h2>Écarts quantitatifs (30 j)</h2>${this._quantIssues.map((i) => `<div class="issue"><span class="pill warn">alerte</span><strong>${ESC(i.node)}</strong> — ${ESC(i.message)}</div>`).join("")}</section>`
+        : `<section class="success">Aucun écart quantitatif sur 30 jours : chaque tableau couvre bien la somme de ses enfants.</section>`)
       : "";
 
     return `
@@ -226,6 +265,7 @@ class EnergyTopologyPanel extends HTMLElement {
       <div id="banner" class="banner"></div>
       <section class="toolbar"><input id="search" type="search" placeholder="Rechercher un appareil, un statistic_id, une pièce…"></section>
       ${issueBlock}
+      ${quantBlock}
       <section class="tree"><ul>${roots.sort((a, b) => a.name.localeCompare(b.name)).map((r) => this._renderNode(r)).join("")}</ul></section>`;
   }
 
@@ -344,6 +384,7 @@ class EnergyTopologyPanel extends HTMLElement {
 
     if (!this._editing) {
       on("#refresh", "click", () => { this._loaded = false; this._load(); });
+      on("#quant", "click", () => this._checkQuantities());
       on("#edit", "click", () => this._enterEdit());
       on("#undo", "click", () => this._undo());
       on("#search", "input", (e) => this._filter(e.target.value));
@@ -385,7 +426,7 @@ class EnergyTopologyPanel extends HTMLElement {
     .metric-error{border-color:var(--error-color)!important}.toolbar input{width:100%;box-sizing:border-box}
     .banner:not(:empty){margin:12px 0;padding:10px 14px;border-radius:10px;border:1px solid var(--error-color);color:var(--error-color)}
     .issues,.success,.tree,.addbox,.editlist,.preview{margin-top:16px;background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:12px;padding:16px}.success{border-color:var(--success-color)}
-    .issue{display:flex;align-items:center;gap:8px;padding:4px 0}.pill{font-size:11px;border-radius:999px;padding:2px 8px;text-transform:uppercase}.pill.error{background:rgba(220,50,50,.18);color:var(--error-color)}
+    .issue{display:flex;align-items:center;gap:8px;padding:4px 0}.pill{font-size:11px;border-radius:999px;padding:2px 8px;text-transform:uppercase}.pill.error{background:rgba(220,50,50,.18);color:var(--error-color)}.pill.warn{background:rgba(224,164,0,.2);color:var(--warning-color,#b7860b)}
     ul{list-style:none;margin:0;padding-left:22px}.tree>ul{padding-left:0}li{margin:6px 0}summary{display:flex;align-items:center;gap:9px;flex-wrap:wrap;cursor:pointer;padding:8px;border-radius:8px}summary:hover{background:var(--secondary-background-color)}
     li.is-panel>details>summary{background:var(--secondary-background-color);border:1px solid var(--divider-color)}
     .node-name{font-weight:600}.panel-name{font-weight:700}code{font-size:12px;color:var(--secondary-text-color)}.parent,.root{font-size:12px;color:var(--secondary-text-color)}
@@ -393,7 +434,7 @@ class EnergyTopologyPanel extends HTMLElement {
     .chip{font-size:12px;border-radius:999px;padding:1px 8px}.chip.room{border:1px solid var(--divider-color);color:var(--secondary-text-color)}.chip.manual{border:1px dashed var(--primary-color);color:var(--primary-color)}
     .loc{font-size:12px;border:1px solid var(--divider-color);border-radius:999px;padding:1px 8px;color:var(--secondary-text-color)}.loc-none{opacity:.6;font-style:italic}
     button.mark{font-size:11px;padding:2px 9px;border-radius:999px;background:transparent;color:var(--secondary-text-color)}button.mark:hover,button.mark.active{border-color:var(--primary-color);color:var(--primary-color)}
-    .badge{font-size:11px;border-radius:999px;padding:2px 7px;margin-left:auto}.ok-badge{background:rgba(30,160,90,.15)}.error-badge{background:rgba(220,50,50,.2);color:var(--error-color)}.cycle{color:var(--error-color)}.error{padding:24px;color:var(--error-color)}
+    .badge{font-size:11px;border-radius:999px;padding:2px 7px;margin-left:auto}.ok-badge{background:rgba(30,160,90,.15)}.warn-badge{background:rgba(224,164,0,.2);color:var(--warning-color,#b7860b)}.error-badge{background:rgba(220,50,50,.2);color:var(--error-color)}.cycle{color:var(--error-color)}.error{padding:24px;color:var(--error-color)}
     .preview.ok{border-color:var(--success-color)}.preview.error{border-color:var(--error-color);color:var(--error-color)}.preview.none{color:var(--secondary-text-color)}
     .addrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.addrow #add-stat,.addrow #add-name{flex:1;min-width:160px}.hint{font-size:13px;margin:8px 0 0}
     table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--divider-color);vertical-align:top}th{font-size:13px;color:var(--secondary-text-color)}td select{width:100%}tr.row-panel td{background:var(--secondary-background-color)}tr.row-panel td .tier{vertical-align:middle}

@@ -22,7 +22,13 @@ from homeassistant.helpers import (
 )
 
 from .const import DOMAIN
-from .topology import annotate, build_nodes, sanitize_items, validate
+from .topology import (
+    annotate,
+    build_nodes,
+    check_quantities,
+    sanitize_items,
+    validate,
+)
 
 DATA_WS_REGISTERED = "energy_topology_ws_registered"
 DATA_PANEL_STORE = "panel_store"
@@ -39,6 +45,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_panel)
     websocket_api.async_register_command(hass, ws_save)
     websocket_api.async_register_command(hass, ws_undo)
+    websocket_api.async_register_command(hass, ws_check_quantities)
     hass.data[DATA_WS_REGISTERED] = True
 
 
@@ -253,3 +260,35 @@ async def ws_undo(
     result = _build_payload(hass, items)
     result["can_undo"] = _can_undo(hass)
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "energy_topology/check_quantities",
+        vol.Required("consumption"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_check_quantities(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Compare each panel to the sum of its children over a period.
+
+    The measured consumption per statistic id is supplied by the caller (fetched
+    from the recorder in the frontend); the comparison logic stays in Python.
+    """
+    manager = await async_get_manager(hass)
+    items = (manager.data or {}).get("device_consumption", []) or []
+    nodes = build_nodes(items)
+    consumption: dict[str, float] = {}
+    for key, value in msg["consumption"].items():
+        if value is None:
+            continue
+        try:
+            consumption[key] = float(value)
+        except (TypeError, ValueError):
+            continue
+    issues = check_quantities(nodes, consumption)
+    connection.send_result(msg["id"], {"issues": issues})

@@ -89,9 +89,10 @@ water consumption are preserved.
   separately).
 - **v0.5** — *(done)* edit mode: add / re-parent / remove devices with preview
   and one-level undo, admin only, via `save_prefs`.
-- **v0.6** — room coverage: per area, list energy devices not tracked in
+- **v0.6** — *(done)* quantitative validation: flag a panel whose direct
+  children consume more than the panel over 30 days (double-count / mis-parent).
+- **v0.7** — room coverage: per area, list energy devices not tracked in
   `device_consumption` (heuristic candidates).
-- **v0.7** — quantitative validation: parent vs sum of children over a period.
 - **v1.0** — HACS default-repository publication.
 
 ## Contributing / feedback

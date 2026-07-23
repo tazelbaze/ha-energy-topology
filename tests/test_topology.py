@@ -6,9 +6,11 @@ importable by conftest.py), not a parallel reimplementation.
 from topology import (
     CYCLE,
     MISSING_PARENT,
+    QUANTITATIVE_MISMATCH,
     SELF_PARENT,
     annotate,
     build_nodes,
+    check_quantities,
     sanitize_items,
     validate,
 )
@@ -167,3 +169,39 @@ def test_sanitize_drops_entries_without_id_and_empty_values():
         {"stat_consumption": "sensor.b", "included_in_stat": None, "name": ""},
     ])
     assert result == [{"stat_consumption": "sensor.b"}]
+
+
+# --- quantitative validation ----------------------------------------------
+
+def _panel_and_children():
+    return build_nodes([
+        {"stat_consumption": "sensor.panel"},
+        {"stat_consumption": "sensor.a", "included_in_stat": "sensor.panel"},
+        {"stat_consumption": "sensor.b", "included_in_stat": "sensor.panel"},
+    ])
+
+
+def test_quantities_flag_children_exceeding_parent():
+    nodes = _panel_and_children()
+    # Children sum 80, parent 50 -> mismatch.
+    issues = check_quantities(nodes, {"sensor.panel": 50, "sensor.a": 50, "sensor.b": 30})
+    assert any(i["kind"] == QUANTITATIVE_MISMATCH and i["node"] == "sensor.panel" for i in issues)
+
+
+def test_quantities_ok_when_children_below_parent():
+    nodes = _panel_and_children()
+    issues = check_quantities(nodes, {"sensor.panel": 100, "sensor.a": 40, "sensor.b": 30})
+    assert issues == []
+
+
+def test_quantities_tolerance_absorbs_small_noise():
+    nodes = _panel_and_children()
+    # Children 101 vs parent 100 -> within 3% tolerance, no issue.
+    issues = check_quantities(nodes, {"sensor.panel": 100, "sensor.a": 51, "sensor.b": 50})
+    assert issues == []
+
+
+def test_quantities_skips_nodes_without_measure():
+    nodes = _panel_and_children()
+    # No parent value -> skipped.
+    assert check_quantities(nodes, {"sensor.a": 50, "sensor.b": 60}) == []

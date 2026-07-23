@@ -13,6 +13,48 @@ from typing import Any
 MISSING_PARENT = "missing_parent"
 SELF_PARENT = "self_parent"
 CYCLE = "cycle"
+QUANTITATIVE_MISMATCH = "quantitative_mismatch"
+
+
+def check_quantities(
+    nodes: dict[str, dict[str, Any]],
+    consumption: dict[str, float],
+    tolerance: float = 0.03,
+) -> list[dict[str, Any]]:
+    """Flag panels whose direct children consume more than the panel itself.
+
+    ``consumption`` maps a node id to its energy over the compared period. A
+    panel's measurement must contain its children, so if the sum of its direct
+    children exceeds the panel (beyond ``tolerance`` for metering noise), the
+    attachment is wrong or a device is double-counted. Nodes without a measured
+    value are skipped. Only direct children are summed.
+    """
+    issues: list[dict[str, Any]] = []
+    children = _children_map(nodes)
+    for parent_id, child_ids in children.items():
+        if not child_ids:
+            continue
+        parent_value = consumption.get(parent_id)
+        if parent_value is None or parent_value <= 0:
+            continue
+        known = [consumption[c] for c in child_ids if consumption.get(c) is not None]
+        if not known:
+            continue
+        child_sum = sum(known)
+        if child_sum > parent_value * (1 + tolerance):
+            issues.append(
+                {
+                    "severity": "warning",
+                    "kind": QUANTITATIVE_MISMATCH,
+                    "node": parent_id,
+                    "message": (
+                        f"Somme des enfants ({child_sum:.1f}) supérieure au tableau "
+                        f"({parent_value:.1f}) sur la période : double comptage ou "
+                        "mauvais rattachement probable."
+                    ),
+                }
+            )
+    return issues
 
 # Keys accepted by Home Assistant's device_consumption schema.
 _ALLOWED_KEYS = ("stat_rate", "name", "included_in_stat")
