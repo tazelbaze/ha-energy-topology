@@ -192,6 +192,17 @@ class EnergyTopologyPanel extends HTMLElement {
     return node.area_name || node.floor_name || "non localisé";
   }
 
+  _sortNodes(list) {
+    // Panels first (by tier), then appliances alphabetically.
+    return list.slice().sort((a, b) => {
+      const pa = a.is_panel ? 0 : 1;
+      const pb = b.is_panel ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      if (pa === 0 && a.tier !== b.tier) return a.tier - b.tier;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
   // ---- read-only render ---------------------------------------------------
 
   _control(node) {
@@ -212,17 +223,17 @@ class EnergyTopologyPanel extends HTMLElement {
       : warns
         ? `<span class="badge warn-badge">${warns}</span>`
         : `<span class="badge ok-badge">OK</span>`;
-    const children = [...node.children].sort((a, b) => a.name.localeCompare(b.name));
+    const children = this._sortNodes(node.children);
     const link = node.parent_id ? `<span class="parent">inclus dans ${ESC(node.parent_id)}</span>` : `<span class="root">racine</span>`;
+    const located = node.area_name || node.floor_name;
+    const locChip = `<span class="loc ${located ? "" : "loc-none"}">${ESC(this._location(node))}</span>`;
 
     let head;
     if (node.is_panel) {
-      const rooms = (node.rooms || []).map((r) => `<span class="chip room">${ESC(r)}</span>`).join("");
       const manual = node.manual_panel && !node.has_children ? `<span class="chip manual">marqué</span>` : "";
-      head = `<span class="tier tier-${node.tier}">${ESC(TIER_LABEL(node.tier))}</span>${rooms}<span class="node-name panel-name">${ESC(node.name)}</span><code>${ESC(node.id)}</code>${manual}${link}${this._control(node)}${badge}`;
+      head = `<span class="tier tier-${node.tier}">${ESC(TIER_LABEL(node.tier))}</span>${locChip}<span class="node-name panel-name">${ESC(node.name)}</span><code>${ESC(node.id)}</code>${manual}${link}${this._control(node)}${badge}`;
     } else {
-      const located = node.area_name || node.floor_name;
-      head = `<span class="loc ${located ? "" : "loc-none"}">${ESC(this._location(node))}</span><span class="node-name">${ESC(node.name)}</span><code>${ESC(node.id)}</code>${link}${this._control(node)}${badge}`;
+      head = `${locChip}<span class="node-name">${ESC(node.name)}</span><code>${ESC(node.id)}</code>${link}${this._control(node)}${badge}`;
     }
 
     return `<li class="${node.is_panel ? "is-panel" : ""}">
@@ -266,7 +277,7 @@ class EnergyTopologyPanel extends HTMLElement {
       <section class="toolbar"><input id="search" type="search" placeholder="Rechercher un appareil, un statistic_id, une pièce…"></section>
       ${issueBlock}
       ${quantBlock}
-      <section class="tree"><ul>${roots.sort((a, b) => a.name.localeCompare(b.name)).map((r) => this._renderNode(r)).join("")}</ul></section>`;
+      <section class="tree"><ul>${this._sortNodes(roots).map((r) => this._renderNode(r)).join("")}</ul></section>`;
   }
 
   // ---- edit render --------------------------------------------------------
