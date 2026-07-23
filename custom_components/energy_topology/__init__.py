@@ -7,6 +7,7 @@ from homeassistant.components import frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
 
 from .const import (
     DOMAIN,
@@ -43,6 +44,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         [StaticPathConfig(STATIC_PATH, str(frontend_path), False)]
     )
 
+    # Append the integration version so the browser reloads the panel JS after
+    # every update instead of serving a stale cached module.
+    integration = await async_get_integration(hass, DOMAIN)
+    module_url = f"{FRONTEND_URL}?v={integration.version}"
+
     frontend.async_register_built_in_panel(
         hass,
         component_name="custom",
@@ -52,7 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config={
             "_panel_custom": {
                 "name": "energy-topology-panel",
-                "module_url": FRONTEND_URL,
+                "module_url": module_url,
                 "embed_iframe": False,
                 "trust_external": False,
             }
