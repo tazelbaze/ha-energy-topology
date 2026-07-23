@@ -158,10 +158,8 @@ class EnergyTopologyPanel extends HTMLElement {
   }
 
   _location(node) {
-    if (node.floor_name && node.area_name) return `${node.floor_name} · ${node.area_name}`;
-    if (node.area_name) return node.area_name;
-    if (node.floor_name) return node.floor_name;
-    return "non localisé";
+    // Show the room (area) name only; the floor is a separate axis.
+    return node.area_name || node.floor_name || "non localisé";
   }
 
   // ---- read-only render ---------------------------------------------------
@@ -186,10 +184,10 @@ class EnergyTopologyPanel extends HTMLElement {
     if (node.is_panel) {
       const rooms = (node.rooms || []).map((r) => `<span class="chip room">${ESC(r)}</span>`).join("");
       const manual = node.manual_panel && !node.has_children ? `<span class="chip manual">marqué</span>` : "";
-      head = `<span class="tier tier-${node.tier}">${ESC(TIER_LABEL(node.tier))}</span><span class="node-name panel-name">${ESC(node.name)}</span><code>${ESC(node.id)}</code>${rooms}${manual}${link}${this._control(node)}${badge}`;
+      head = `<span class="tier tier-${node.tier}">${ESC(TIER_LABEL(node.tier))}</span>${rooms}<span class="node-name panel-name">${ESC(node.name)}</span><code>${ESC(node.id)}</code>${manual}${link}${this._control(node)}${badge}`;
     } else {
       const located = node.area_name || node.floor_name;
-      head = `<span class="node-name">${ESC(node.name)}</span><code>${ESC(node.id)}</code><span class="loc ${located ? "" : "loc-none"}">${ESC(this._location(node))}</span>${link}${this._control(node)}${badge}`;
+      head = `<span class="loc ${located ? "" : "loc-none"}">${ESC(this._location(node))}</span><span class="node-name">${ESC(node.name)}</span><code>${ESC(node.id)}</code>${link}${this._control(node)}${badge}`;
     }
 
     return `<li class="${node.is_panel ? "is-panel" : ""}">
