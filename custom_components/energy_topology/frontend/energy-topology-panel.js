@@ -242,21 +242,53 @@ class EnergyTopologyPanel extends HTMLElement {
     return opts.join("");
   }
 
+  _draftDepth(byId, id) {
+    let depth = 1;
+    const seen = new Set();
+    let current = byId.get(id)?.included_in_stat;
+    while (current && byId.has(current) && !seen.has(current)) {
+      seen.add(current);
+      depth += 1;
+      current = byId.get(current).included_in_stat;
+    }
+    return depth;
+  }
+
   _renderEdit() {
     const tracked = new Set(this._draft.map((it) => it.stat_consumption));
     const candidates = (this._candidates || []).filter((s) => !tracked.has(s.statistic_id));
     const previewErrors = (this._preview?.issues || []).filter((i) => i.severity === "error");
     const previewed = this._preview !== null;
 
+    const byId = new Map(this._draft.map((it) => [it.stat_consumption, it]));
+    const parents = new Set(this._draft.map((it) => it.included_in_stat).filter(Boolean));
+    const isPanel = (id) => parents.has(id) || Boolean(this._nodes?.get(id)?.manual_panel);
+
     const rows = this._draft
       .slice()
-      .sort((a, b) => this._label(a.stat_consumption).localeCompare(this._label(b.stat_consumption)))
-      .map((it) => `
-        <tr>
-          <td><strong>${ESC(this._label(it.stat_consumption))}</strong><br><code>${ESC(it.stat_consumption)}</code></td>
+      .sort((a, b) => {
+        const pa = isPanel(a.stat_consumption) ? 0 : 1;
+        const pb = isPanel(b.stat_consumption) ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        if (pa === 0) {
+          const da = this._draftDepth(byId, a.stat_consumption);
+          const db = this._draftDepth(byId, b.stat_consumption);
+          if (da !== db) return da - db;
+        }
+        return this._label(a.stat_consumption).localeCompare(this._label(b.stat_consumption));
+      })
+      .map((it) => {
+        const panel = isPanel(it.stat_consumption);
+        const tag = panel
+          ? `<span class="tier tier-${this._draftDepth(byId, it.stat_consumption)}">${ESC(TIER_LABEL(this._draftDepth(byId, it.stat_consumption)))}</span> `
+          : "";
+        return `
+        <tr class="${panel ? "row-panel" : ""}">
+          <td>${tag}<strong>${ESC(this._label(it.stat_consumption))}</strong><br><code>${ESC(it.stat_consumption)}</code></td>
           <td><select data-act="parent" data-id="${ESC(it.stat_consumption)}">${this._parentOptions(it.stat_consumption, it.included_in_stat)}</select></td>
           <td><button class="ghost" data-act="remove" data-id="${ESC(it.stat_consumption)}">Retirer</button></td>
-        </tr>`).join("");
+        </tr>`;
+      }).join("");
 
     const candOptions = [`<option value="">Choisir une statistique…</option>`]
       .concat(candidates.map((s) => `<option value="${ESC(s.statistic_id)}">${ESC(s.name || s.statistic_id)}</option>`))
@@ -366,7 +398,7 @@ class EnergyTopologyPanel extends HTMLElement {
     .badge{font-size:11px;border-radius:999px;padding:2px 7px;margin-left:auto}.ok-badge{background:rgba(30,160,90,.15)}.error-badge{background:rgba(220,50,50,.2);color:var(--error-color)}.cycle{color:var(--error-color)}.error{padding:24px;color:var(--error-color)}
     .preview.ok{border-color:var(--success-color)}.preview.error{border-color:var(--error-color);color:var(--error-color)}.preview.none{color:var(--secondary-text-color)}
     .addrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.addrow #add-stat,.addrow #add-name{flex:1;min-width:160px}.hint{font-size:13px;margin:8px 0 0}
-    table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--divider-color);vertical-align:top}th{font-size:13px;color:var(--secondary-text-color)}td select{width:100%}
+    table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--divider-color);vertical-align:top}th{font-size:13px;color:var(--secondary-text-color)}td select{width:100%}tr.row-panel td{background:var(--secondary-background-color)}tr.row-panel td .tier{vertical-align:middle}
     @media(max-width:900px){.metrics{grid-template-columns:repeat(3,1fr)}}
     @media(max-width:700px){main{padding:14px}.metrics{grid-template-columns:repeat(2,1fr)}header{align-items:flex-start;flex-direction:column}}
   `; }
