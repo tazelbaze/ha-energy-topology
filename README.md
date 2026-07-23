@@ -91,7 +91,9 @@ water consumption are preserved.
   and one-level undo, admin only, via `save_prefs`.
 - **v0.6** — *(done)* quantitative validation: flag a panel whose direct
   children consume more than the panel over 30 days (double-count / mis-parent).
-- **v0.7** — room coverage: per area, list energy devices not tracked in
+- **v0.7** — *(done)* guided add picker: filter candidate statistics by typology
+  (daily / monthly / yearly) then by room before choosing the entity.
+- **v0.8** — room coverage: per area, list energy devices not tracked in
   `device_consumption` (heuristic candidates).
 - **v1.0** — HACS default-repository publication.
 

@@ -93,16 +93,48 @@ class EnergyTopologyPanel extends HTMLElement {
     this._draft = (this._items || []).map((it) => ({ ...it }));
     this._preview = null;
     this._addFilter = "";
+    this._addPeriod = "";
+    this._addRoom = "";
     this._render();
     await this._loadCandidates();
     this._render();
   }
 
+  _period(statId) {
+    const s = (statId || "").toLowerCase();
+    if (/(today|daily|quotidien|journalier|_jour)/.test(s)) return "daily";
+    if (/(weekly|hebdo|semaine)/.test(s)) return "weekly";
+    if (/(this_month|monthly|mensuel|_mois)/.test(s)) return "monthly";
+    if (/(yearly|annuel|_annee|_annuelle|_an\b)/.test(s)) return "yearly";
+    return "other";
+  }
+
+  _periodLabel(period) {
+    return {
+      daily: "Journalier", weekly: "Hebdomadaire", monthly: "Mensuel",
+      yearly: "Annuel", other: "Autre / total",
+    }[period] || period;
+  }
+
+  _candArea(statId) {
+    const entity = this._hass?.entities?.[statId];
+    let areaId = entity?.area_id || null;
+    if (!areaId && entity?.device_id) {
+      areaId = this._hass?.devices?.[entity.device_id]?.area_id || null;
+    }
+    const area = areaId ? this._hass?.areas?.[areaId] : null;
+    return area ? area.name : null;
+  }
+
   _availableCandidates() {
     const tracked = new Set(this._draft.map((it) => it.stat_consumption));
     const filter = (this._addFilter || "").trim().toLowerCase();
+    const period = this._addPeriod || "";
+    const room = this._addRoom || "";
     return (this._candidates || [])
       .filter((s) => !tracked.has(s.statistic_id))
+      .filter((s) => !period || this._period(s.statistic_id) === period)
+      .filter((s) => !room || (this._candArea(s.statistic_id) || "__none__") === room)
       .filter((s) => !filter
         || s.statistic_id.toLowerCase().includes(filter)
         || (s.name || "").toLowerCase().includes(filter));
@@ -373,6 +405,29 @@ class EnergyTopologyPanel extends HTMLElement {
 
     const candOptions = this._candOptionsHtml(candidates);
 
+    const trackedSet = new Set(this._draft.map((it) => it.stat_consumption));
+    const untracked = (this._candidates || []).filter((s) => !trackedSet.has(s.statistic_id));
+    const periodCounts = {};
+    for (const s of untracked) {
+      const p = this._period(s.statistic_id);
+      periodCounts[p] = (periodCounts[p] || 0) + 1;
+    }
+    const periodOrder = ["daily", "weekly", "monthly", "yearly", "other"];
+    const periodOptions = [`<option value="">Toutes les typologies</option>`]
+      .concat(periodOrder.filter((p) => periodCounts[p]).map((p) => `<option value="${p}" ${this._addPeriod === p ? "selected" : ""}>${ESC(this._periodLabel(p))} (${periodCounts[p]})</option>`))
+      .join("");
+
+    const forRoom = untracked.filter((s) => !this._addPeriod || this._period(s.statistic_id) === this._addPeriod);
+    const roomCounts = new Map();
+    for (const s of forRoom) {
+      const a = this._candArea(s.statistic_id) || "__none__";
+      roomCounts.set(a, (roomCounts.get(a) || 0) + 1);
+    }
+    const roomNames = [...roomCounts.keys()].sort((a, b) => (a === "__none__" ? 1 : b === "__none__" ? -1 : a.localeCompare(b)));
+    const roomOptions = [`<option value="">Toutes les pièces</option>`]
+      .concat(roomNames.map((n) => `<option value="${ESC(n)}" ${this._addRoom === n ? "selected" : ""}>${n === "__none__" ? "Non localisées" : ESC(n)} (${roomCounts.get(n)})</option>`))
+      .join("");
+
     const parentAddOptions = [`<option value="">(racine)</option>`]
       .concat(this._draft.map((it) => `<option value="${ESC(it.stat_consumption)}">${ESC(this._label(it.stat_consumption))}</option>`))
       .join("");
@@ -398,14 +453,19 @@ class EnergyTopologyPanel extends HTMLElement {
       ${previewBlock}
       <section class="addbox">
         <h2>Ajouter un appareil</h2>
-        <input id="add-search" type="search" class="addsearch" placeholder="Filtrer les statistiques (nom ou statistic_id)…" value="${ESC(this._addFilter || "")}">
+        <p class="hint">Choisissez une typologie de statistique (pour rester cohérent), puis une pièce, puis l'entité.</p>
+        <div class="addrow filters">
+          <label>Typologie<select id="add-period">${periodOptions}</select></label>
+          <label>Pièce<select id="add-room">${roomOptions}</select></label>
+          <input id="add-search" type="search" placeholder="Filtrer (nom ou statistic_id)…" value="${ESC(this._addFilter || "")}">
+        </div>
         <div class="addrow">
           <select id="add-stat">${candOptions}</select>
           <input id="add-name" type="text" placeholder="Nom d'affichage (optionnel)">
           <select id="add-parent">${parentAddOptions}</select>
           <button id="add-btn">Ajouter</button>
         </div>
-        <p id="add-hint" class="hint">${candidates.length} statistique(s) d'énergie disponible(s)${candidates.length > 200 ? `, 200 affichées — affinez le filtre` : ""}.</p>
+        <p id="add-hint" class="hint">${candidates.length} statistique(s) correspondante(s)${candidates.length > 200 ? `, 200 affichées — affinez` : ""}.</p>
       </section>
       <section class="editlist">
         <table>
@@ -441,6 +501,8 @@ class EnergyTopologyPanel extends HTMLElement {
     on("#apply", "click", () => this._apply());
     on("#cancel", "click", () => this._cancelEdit());
     on("#add-search", "input", (e) => { this._addFilter = e.target.value; this._refreshCandidates(); });
+    on("#add-period", "change", (e) => { this._addPeriod = e.target.value; this._addRoom = ""; this._render(); });
+    on("#add-room", "change", (e) => { this._addRoom = e.target.value; this._render(); });
     on("#add-btn", "click", () => {
       const stat = this.querySelector("#add-stat").value;
       const name = this.querySelector("#add-name").value.trim();
@@ -479,7 +541,7 @@ class EnergyTopologyPanel extends HTMLElement {
     button.mark{font-size:11px;padding:2px 9px;border-radius:999px;background:transparent;color:var(--secondary-text-color)}button.mark:hover,button.mark.active{border-color:var(--primary-color);color:var(--primary-color)}
     .badge{font-size:11px;border-radius:999px;padding:2px 7px;margin-left:auto}.ok-badge{background:rgba(30,160,90,.15)}.warn-badge{background:rgba(224,164,0,.2);color:var(--warning-color,#b7860b)}.error-badge{background:rgba(220,50,50,.2);color:var(--error-color)}.cycle{color:var(--error-color)}.error{padding:24px;color:var(--error-color)}
     .preview.ok{border-color:var(--success-color)}.preview.error{border-color:var(--error-color);color:var(--error-color)}.preview.none{color:var(--secondary-text-color)}
-    .addsearch{width:100%;box-sizing:border-box;margin-bottom:10px}.addrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.addrow #add-stat,.addrow #add-name{flex:1;min-width:160px}.hint{font-size:13px;margin:8px 0 0}
+    .addrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.addrow.filters{margin:8px 0 12px}.addrow.filters label{display:flex;flex-direction:column;font-size:12px;color:var(--secondary-text-color);gap:3px}.addrow.filters #add-search{flex:1;min-width:160px;align-self:flex-end}.addrow #add-stat,.addrow #add-name{flex:1;min-width:160px}.hint{font-size:13px;margin:8px 0 0}
     table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--divider-color);vertical-align:top}th{font-size:13px;color:var(--secondary-text-color)}td select{width:100%}tr.row-panel td{background:var(--secondary-background-color)}tr.row-panel td .tier{vertical-align:middle}
     @media(max-width:900px){.metrics{grid-template-columns:repeat(3,1fr)}}
     @media(max-width:700px){main{padding:14px}.metrics{grid-template-columns:repeat(2,1fr)}header{align-items:flex-start;flex-direction:column}}
