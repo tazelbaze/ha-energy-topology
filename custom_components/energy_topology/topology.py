@@ -1,9 +1,9 @@
 """Pure topology logic for Energy Topology.
 
 This module has no Home Assistant imports so it can be unit-tested directly.
-It builds the device forest from the Energy prefs ``device_consumption`` list
-and validates it. Location-aware checks (cross-area / cross-floor) run only when
-a location map is supplied by the caller.
+It builds the device forest from the Energy prefs ``device_consumption`` list,
+validates its structure, and annotates each node as a panel/zone (an aggregating
+node), with its tier (depth) and the rooms it directly covers.
 """
 from __future__ import annotations
 
@@ -13,8 +13,6 @@ from typing import Any
 MISSING_PARENT = "missing_parent"
 SELF_PARENT = "self_parent"
 CYCLE = "cycle"
-CROSS_AREA = "cross_area"
-CROSS_FLOOR = "cross_floor"
 
 
 def build_nodes(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -37,16 +35,12 @@ def build_nodes(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return nodes
 
 
-def validate(
-    nodes: dict[str, dict[str, Any]],
-    locations: dict[str, dict[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
-    """Return the list of issues found in the topology.
+def validate(nodes: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return the structural issues found in the topology.
 
-    ``locations`` maps a node id to ``{area_id, area_name, floor_id, floor_name}``.
-    When provided, cross-area and cross-floor attachments are reported as
-    warnings. A link is reported at most once (floor mismatch takes precedence
-    over area mismatch).
+    Location (area/floor) is intentionally NOT used for validation: a parent is
+    typically a meter or an electrical panel that legitimately sits in a
+    technical room, so comparing its area to its children's areas is unsound.
     """
     issues: list[dict[str, Any]] = []
 
@@ -72,11 +66,59 @@ def validate(
             )
 
     issues.extend(_detect_cycles(nodes))
-
-    if locations:
-        issues.extend(_detect_cross_boundary(nodes, locations))
-
     return issues
+
+
+def _children_map(nodes: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+    """Map each node id to the list of its child ids."""
+    children: dict[str, list[str]] = {node_id: [] for node_id in nodes}
+    for node in nodes.values():
+        parent_id = node["parent_id"]
+        if parent_id and parent_id in nodes:
+            children[parent_id].append(node["id"])
+    return children
+
+
+def _depth(nodes: dict[str, dict[str, Any]], node_id: str) -> int:
+    """Distance from the root (root = 1). Cycle-safe."""
+    tier = 1
+    seen: set[str] = set()
+    current = nodes[node_id]["parent_id"]
+    while current and current in nodes and current not in seen:
+        seen.add(current)
+        tier += 1
+        current = nodes[current]["parent_id"]
+    return tier
+
+
+def annotate(
+    nodes: dict[str, dict[str, Any]],
+    locations: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Annotate each node in place.
+
+    Adds:
+    - ``is_panel``: the node aggregates children (a meter / electrical panel).
+    - ``tier``: depth from the root (1 = primary panel).
+    - ``rooms``: distinct area names of the node's direct *leaf* children
+      (the rooms this zone directly covers). Child panels are sub-zones and are
+      not folded in here. Requires ``locations``.
+    """
+    children = _children_map(nodes)
+    for node_id, node in nodes.items():
+        kids = children[node_id]
+        node["is_panel"] = bool(kids)
+        node["tier"] = _depth(nodes, node_id)
+        rooms: list[str] = []
+        if locations:
+            for child_id in kids:
+                if children[child_id]:
+                    continue  # child is itself a panel / sub-zone
+                area_name = (locations.get(child_id) or {}).get("area_name")
+                if area_name and area_name not in rooms:
+                    rooms.append(area_name)
+        node["rooms"] = sorted(rooms)
+    return nodes
 
 
 def _detect_cycles(nodes: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -110,48 +152,4 @@ def _detect_cycles(nodes: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     for node_id in nodes:
         if color[node_id] == white:
             visit(node_id)
-    return issues
-
-
-def _detect_cross_boundary(
-    nodes: dict[str, dict[str, Any]],
-    locations: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Flag included_in_stat links that cross an area or a floor boundary."""
-    issues: list[dict[str, Any]] = []
-    for node in nodes.values():
-        parent_id = node["parent_id"]
-        if not parent_id or parent_id not in nodes:
-            continue
-        child = locations.get(node["id"]) or {}
-        parent = locations.get(parent_id) or {}
-        c_floor, p_floor = child.get("floor_id"), parent.get("floor_id")
-        c_area, p_area = child.get("area_id"), parent.get("area_id")
-
-        if c_floor and p_floor and c_floor != p_floor:
-            issues.append(
-                {
-                    "severity": "warning",
-                    "kind": CROSS_FLOOR,
-                    "node": node["id"],
-                    "message": (
-                        "Rattachement inter-étages : "
-                        f"{child.get('floor_name') or c_floor}"
-                        f" → {parent.get('floor_name') or p_floor}"
-                    ),
-                }
-            )
-        elif c_area and p_area and c_area != p_area:
-            issues.append(
-                {
-                    "severity": "warning",
-                    "kind": CROSS_AREA,
-                    "node": node["id"],
-                    "message": (
-                        "Rattachement inter-pièces : "
-                        f"{child.get('area_name') or c_area}"
-                        f" → {parent.get('area_name') or p_area}"
-                    ),
-                }
-            )
     return issues

@@ -55,22 +55,29 @@ Internal representation:
 - **self_parent** — `parentId == id`.
 - **cycle** — following `parentId` pointers returns to an already-visited node
   (detected with a white/grey/black DFS).
-- **cross_floor / cross_area** *(v0.2)* — an `included_in_stat` link whose child
-  and parent sit in different floors (resp. areas). Reported at most once per
-  link, floor mismatch taking precedence. This is what breaks the native
-  Sankey's floor/area grouping.
-- **quantitative_mismatch** *(v0.4)* — over a chosen period, a parent's
+- **quantitative_mismatch** *(later)* — over a chosen period, a parent's
   consumption is lower than the sum of its children's consumption (likely
   double-count or mis-attribution).
 
-### Location model (v0.2)
+Location is **never** used for validation. A cross-area / cross-floor rule was
+tried in v0.2 and dropped in v0.3: a parent is typically a meter or panel that
+legitimately sits in a technical room, so comparing its area to its children's
+areas produces false positives.
 
-Location is **orthogonal** to the topology and is never stored in the Energy
-prefs. Each node's area and floor are resolved live from the registries:
-statistic id → entity → (entity area, else device area) → area → floor. Rooms
-are HA **Areas**; the "RDC / Etage" style groups and remote electrical panels
-are HA **Floors** / floor-less Areas. A remote sub-panel is simply an upstream
-device (an intermediate topology node), not a new concept.
+### Panels / zones and location model (v0.3)
+
+A "zone" is a place with an electrical panel. This is **not** a new stored
+concept: a panel is an aggregating node of the `included_in_stat` forest, and
+the panel hierarchy (primary → secondary → tertiary) is exactly the topology
+tree. Each node is annotated with `is_panel` (has children), `tier` (depth from
+the root) and `rooms` (the areas of its direct leaf children).
+
+Location is orthogonal to the topology and never stored in the Energy prefs.
+Each node's area and floor are resolved live from the registries: statistic id →
+entity → (entity area, else device area) → area → floor. Rooms are HA **Areas**;
+HA **Floors** (RDC / Etage) are a separate axis and are not forced to equal a
+zone. A room belongs to the zone whose panel feeds its appliances, derived from
+the tree (heuristic).
 
 ## 6. Architecture decision
 
@@ -101,11 +108,14 @@ write must go through a preview + explicit confirmation.
 
 - **v0.1** — read-only inspection + structural validation.
 - **v0.2** — *(done)* backend WebSocket API (tests target the real logic),
-  area/floor enrichment, cross-area / cross-floor detection.
-- **v0.3** — room coverage: per area, list energy devices not tracked in
+  area/floor enrichment.
+- **v0.3** — *(done)* panels/zones tiers + rooms per panel; dropped the unsound
+  cross-area / cross-floor rule.
+- **v0.4** — guarded edit mode (add / re-parent, draft, preview, undo) via
+  `save_prefs`, admin only.
+- **v0.5** — room coverage: per area, list energy devices not tracked in
   `device_consumption` (heuristic candidates, not hard errors).
-- **v0.4** — quantitative parent/children validation over a period.
-- **v0.5** — guarded edit mode (draft, preview, undo) via `save_prefs`.
+- **v0.6** — quantitative parent/children validation over a period.
 - **v1.0** — HACS default-repository publication + full docs.
 
 ## 9. Open questions

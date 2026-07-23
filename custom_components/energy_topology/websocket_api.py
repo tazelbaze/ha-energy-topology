@@ -21,7 +21,7 @@ from homeassistant.helpers import (
     floor_registry as fr,
 )
 
-from .topology import build_nodes, validate
+from .topology import annotate, build_nodes, validate
 
 DATA_WS_REGISTERED = "energy_topology_ws_registered"
 
@@ -88,7 +88,8 @@ def _build_payload(
     """Build the nodes + issues payload from a device_consumption list."""
     nodes = build_nodes(items)
     locations = _resolve_locations(hass, list(nodes.keys()))
-    issues = validate(nodes, locations)
+    annotate(nodes, locations)
+    issues = validate(nodes)
 
     payload_nodes = []
     for node in nodes.values():
@@ -99,6 +100,9 @@ def _build_payload(
                 "name": node["name"],
                 "parent_id": node["parent_id"],
                 "rate_id": node["rate_id"],
+                "is_panel": node["is_panel"],
+                "tier": node["tier"],
+                "rooms": node["rooms"],
                 "area_id": loc.get("area_id"),
                 "area_name": loc.get("area_name"),
                 "floor_id": loc.get("floor_id"),
