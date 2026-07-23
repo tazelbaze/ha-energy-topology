@@ -93,8 +93,8 @@ water consumption are preserved.
   children consume more than the panel over 30 days (double-count / mis-parent).
 - **v0.7** — *(done)* guided add picker: filter candidate statistics by typology
   (daily / monthly / yearly) then by room before choosing the entity.
-- **v0.8** — room coverage: per area, list energy devices not tracked in
-  `device_consumption` (heuristic candidates).
+- **v0.8** — *(done)* room coverage: per area, list energy devices not tracked
+  in `device_consumption` (heuristic, deduped by device).
 - **v1.0** — HACS default-repository publication.
 
 ## Contributing / feedback

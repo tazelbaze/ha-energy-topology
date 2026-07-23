@@ -39,7 +39,41 @@ class EnergyTopologyPanel extends HTMLElement {
     this._editing = false;
     this._quantChecked = false;
     this._quantIssues = [];
+    this._coverage = null;
     this._render();
+  }
+
+  async _showCoverage() {
+    if (!this._candidates) await this._loadCandidates();
+    this._coverage = this._computeCoverage();
+    this._render();
+  }
+
+  _computeCoverage() {
+    const tracked = new Set([...(this._nodes?.keys() || [])]);
+    const groups = new Map();
+    for (const s of (this._candidates || [])) {
+      const id = s.statistic_id;
+      const area = this._candArea(id);
+      if (!area) continue; // per-room coverage only
+      const entity = this._hass?.entities?.[id];
+      const deviceId = entity?.device_id || `stat:${id}`;
+      let group = groups.get(deviceId);
+      if (!group) {
+        const device = entity?.device_id ? this._hass?.devices?.[entity.device_id] : null;
+        const name = (device && (device.name_by_user || device.name)) || s.name || id;
+        group = { name, area, covered: false };
+        groups.set(deviceId, group);
+      }
+      if (tracked.has(id)) group.covered = true;
+    }
+    const byArea = new Map();
+    for (const group of groups.values()) {
+      if (group.covered) continue;
+      if (!byArea.has(group.area)) byArea.set(group.area, []);
+      byArea.get(group.area).push(group);
+    }
+    return byArea;
   }
 
   async _checkQuantities() {
@@ -318,7 +352,13 @@ class EnergyTopologyPanel extends HTMLElement {
       ? `<section class="issues"><h2>Anomalies</h2>${errors.map((i) => `<div class="issue"><span class="pill error">erreur</span><strong>${ESC(i.node)}</strong> — ${ESC(i.message)}</div>`).join("")}</section>`
       : `<section class="success">Aucune boucle, parent absent ni auto-référence détectés.</section>`;
 
-    const actions = `<button id="quant" class="ghost">Vérifier les quantités (30 j)</button>${this._isAdmin ? `<button id="edit">Éditer</button>${this._canUndo ? `<button id="undo" class="ghost">Revenir à l'état précédent</button>` : ""}` : ""}`;
+    const actions = `<button id="coverage" class="ghost">Couverture par pièce</button><button id="quant" class="ghost">Vérifier les quantités (30 j)</button>${this._isAdmin ? `<button id="edit">Éditer</button>${this._canUndo ? `<button id="undo" class="ghost">Revenir à l'état précédent</button>` : ""}` : ""}`;
+
+    const coverageBlock = this._coverage
+      ? (this._coverage.size
+        ? `<section class="issues"><h2>Couverture par pièce — appareils non suivis</h2>${[...this._coverage.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([area, groups]) => `<div class="cov-area"><strong>${ESC(area)}</strong> <span class="badge warn-badge">${groups.length}</span><div class="cov-list">${groups.slice().sort((x, y) => x.name.localeCompare(y.name)).map((g) => `<span class="chip room">${ESC(g.name)}</span>`).join("")}</div></div>`).join("")}<p class="hint">Heuristique : appareils ayant une statistique d'énergie rattachée à une pièce mais absents de la topologie. Un appareil déjà compté en amont dans un tableau peut apparaître ici à tort.</p></section>`
+        : `<section class="success">Aucune pièce avec un appareil énergie oublié : la couverture est complète.</section>`)
+      : "";
 
     const quantBlock = this._quantChecked
       ? ((this._quantIssues || []).length
@@ -342,6 +382,7 @@ class EnergyTopologyPanel extends HTMLElement {
       <section class="toolbar"><input id="search" type="search" placeholder="Rechercher un appareil, un statistic_id, une pièce…"></section>
       ${issueBlock}
       ${quantBlock}
+      ${coverageBlock}
       <section class="tree"><ul>${this._sortNodes(roots).map((r) => this._renderNode(r)).join("")}</ul></section>`;
   }
 
@@ -486,6 +527,7 @@ class EnergyTopologyPanel extends HTMLElement {
 
     if (!this._editing) {
       on("#refresh", "click", () => { this._loaded = false; this._load(); });
+      on("#coverage", "click", () => this._showCoverage());
       on("#quant", "click", () => this._checkQuantities());
       on("#edit", "click", () => this._enterEdit());
       on("#undo", "click", () => this._undo());
@@ -531,6 +573,7 @@ class EnergyTopologyPanel extends HTMLElement {
     .metric-error{border-color:var(--error-color)!important}.toolbar input{width:100%;box-sizing:border-box}
     .banner:not(:empty){margin:12px 0;padding:10px 14px;border-radius:10px;border:1px solid var(--error-color);color:var(--error-color)}
     .issues,.success,.tree,.addbox,.editlist,.preview{margin-top:16px;background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:12px;padding:16px}.success{border-color:var(--success-color)}
+    .cov-area{padding:8px 0;border-bottom:1px solid var(--divider-color)}.cov-area:last-child{border-bottom:0}.cov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
     .issue{display:flex;align-items:center;gap:8px;padding:4px 0}.pill{font-size:11px;border-radius:999px;padding:2px 8px;text-transform:uppercase}.pill.error{background:rgba(220,50,50,.18);color:var(--error-color)}.pill.warn{background:rgba(224,164,0,.2);color:var(--warning-color,#b7860b)}
     ul{list-style:none;margin:0;padding-left:22px}.tree>ul{padding-left:0}li{margin:6px 0}summary{display:flex;align-items:center;gap:9px;flex-wrap:wrap;cursor:pointer;padding:8px;border-radius:8px}summary:hover{background:var(--secondary-background-color)}
     li.is-panel>details>summary{background:var(--secondary-background-color);border:1px solid var(--divider-color)}
