@@ -14,6 +14,30 @@ MISSING_PARENT = "missing_parent"
 SELF_PARENT = "self_parent"
 CYCLE = "cycle"
 
+# Keys accepted by Home Assistant's device_consumption schema.
+_ALLOWED_KEYS = ("stat_rate", "name", "included_in_stat")
+
+
+def sanitize_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return device_consumption entries limited to schema-valid keys.
+
+    Drops entries without ``stat_consumption`` and any unknown key, so a draft
+    coming from the frontend cannot inject fields that ``save_prefs`` would
+    reject. Empty optional values are omitted.
+    """
+    clean: list[dict[str, Any]] = []
+    for item in items:
+        stat = item.get("stat_consumption")
+        if not stat:
+            continue
+        entry: dict[str, Any] = {"stat_consumption": stat}
+        for key in _ALLOWED_KEYS:
+            value = item.get(key)
+            if value:
+                entry[key] = value
+        clean.append(entry)
+    return clean
+
 
 def build_nodes(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Build a node map from a ``device_consumption`` list.

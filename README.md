@@ -4,8 +4,8 @@ Diagnose and repair the device topology of the Home Assistant Energy dashboard.
 Detects cycles, missing parents and double-counting in your upstream
 (`included_in_stat`) relationships. Read-only today, safe editing next.
 
-> Status: **v0.4.0**. Read-only on the Energy configuration; admins can mark
-> nodes as panels (stored separately, never touching the Energy config).
+> Status: **v0.5.0**. Admins can edit the topology (add / re-parent / remove)
+> with preview and one-level undo; everyone else gets a read-only view.
 
 ## Why this exists
 
@@ -35,8 +35,11 @@ is a **forest** (a set of trees), not an arbitrary graph.
 - enriches every device with its **area and floor**, resolved from the Home
   Assistant registries (statistic → entity → device → area → floor), and shows
   the rooms each panel directly covers;
-- lets you search by name, `statistic_id` or room;
-- never changes your Energy configuration.
+- lets an admin **edit the topology** (add a tracked device, change its parent
+  panel, remove it) in a draft, with a preview and a one-level undo; the write
+  goes through the official `energy/save_prefs` path and only touches
+  `device_consumption`;
+- lets you search by name, `statistic_id` or room.
 
 Location is used as information only, never for validation: a panel or meter
 legitimately sits in a technical room, so comparing its area to its children's
@@ -57,11 +60,14 @@ without writing, as groundwork for the future edit mode.
 
 See [INSTALLATION.md](INSTALLATION.md) for details and troubleshooting.
 
-## Why read-only first
+## Editing safely
 
-Editing (`energy/save_prefs`) will come only once the model is validated and a
-preview / undo flow is in place. Shipping read-only first guarantees this
-integration cannot break an existing setup.
+Editing was added only after the model was validated and behind three
+safeguards: it is admin-only, every change is validated and previewed before
+being applied (a structural error blocks the write), and the previous state is
+snapshotted so a single **undo** can restore it. Writes go through the official
+`energy/save_prefs` path and only touch `device_consumption`; energy sources and
+water consumption are preserved.
 
 ## Known limitations
 
@@ -72,7 +78,7 @@ integration cannot break an existing setup.
   quantitative parent-vs-children comparison is not implemented yet;
 - room-per-panel is derived from direct leaf children and is heuristic (depends
   on devices being assigned to areas);
-- read-only: no editing of `included_in_stat` yet.
+- undo is one level deep (restores the state before the last apply).
 
 ## Roadmap
 
@@ -81,8 +87,8 @@ integration cannot break an existing setup.
   panel; removed the unsound cross-area/cross-floor rule.
 - **v0.4** — *(done)* manual panel marks for childless sub-meters (admin, stored
   separately).
-- **v0.5** — safe edit mode: add and re-parent devices from the panel, with
-  preview and undo before writing `save_prefs` (admin only).
+- **v0.5** — *(done)* edit mode: add / re-parent / remove devices with preview
+  and one-level undo, admin only, via `save_prefs`.
 - **v0.6** — room coverage: per area, list energy devices not tracked in
   `device_consumption` (heuristic candidates).
 - **v0.7** — quantitative validation: parent vs sum of children over a period.

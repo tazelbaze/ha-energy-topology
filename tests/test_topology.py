@@ -9,6 +9,7 @@ from topology import (
     SELF_PARENT,
     annotate,
     build_nodes,
+    sanitize_items,
     validate,
 )
 
@@ -135,3 +136,34 @@ def test_manual_panel_excluded_from_parent_rooms():
     annotate(nodes, locations, {"sensor.etage"})
     # etage is a panel now, so it must not be counted as a room of main.
     assert nodes["sensor.main"]["rooms"] == ["Cuisine"]
+
+
+# --- sanitisation of a draft before writing -------------------------------
+
+def test_sanitize_keeps_only_valid_keys():
+    result = sanitize_items([
+        {
+            "stat_consumption": "sensor.a",
+            "name": "A",
+            "stat_rate": "sensor.a_power",
+            "included_in_stat": "sensor.main",
+            "is_panel": True,          # injected junk, must be dropped
+            "children": ["x"],          # injected junk, must be dropped
+        },
+    ])
+    assert result == [
+        {
+            "stat_consumption": "sensor.a",
+            "stat_rate": "sensor.a_power",
+            "name": "A",
+            "included_in_stat": "sensor.main",
+        }
+    ]
+
+
+def test_sanitize_drops_entries_without_id_and_empty_values():
+    result = sanitize_items([
+        {"name": "no id"},
+        {"stat_consumption": "sensor.b", "included_in_stat": None, "name": ""},
+    ])
+    assert result == [{"stat_consumption": "sensor.b"}]

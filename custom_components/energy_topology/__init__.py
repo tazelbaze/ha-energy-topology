@@ -16,8 +16,12 @@ from .const import (
     PANEL_URL,
     STATIC_PATH,
 )
-from .store import PanelStore
-from .websocket_api import DATA_PANEL_STORE, async_register as async_register_ws
+from .store import PanelStore, SnapshotStore
+from .websocket_api import (
+    DATA_PANEL_STORE,
+    DATA_SNAPSHOT_STORE,
+    async_register as async_register_ws,
+)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -27,6 +31,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         store = PanelStore(hass)
         await store.async_load()
         domain_data[DATA_PANEL_STORE] = store
+    if DATA_SNAPSHOT_STORE not in domain_data:
+        snapshot = SnapshotStore(hass)
+        await snapshot.async_load()
+        domain_data[DATA_SNAPSHOT_STORE] = snapshot
 
     async_register_ws(hass)
 

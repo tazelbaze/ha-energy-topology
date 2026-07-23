@@ -13,6 +13,7 @@ from homeassistant.helpers.storage import Store
 from .const import DOMAIN
 
 STORAGE_KEY = f"{DOMAIN}.panels"
+SNAPSHOT_KEY = f"{DOMAIN}.snapshot"
 STORAGE_VERSION = 1
 
 
@@ -48,3 +49,36 @@ class PanelStore:
         if pruned != self._ids:
             self._ids = pruned
             await self._store.async_save({"panels": sorted(self._ids)})
+
+
+class SnapshotStore:
+    """Keep a single snapshot of device_consumption for one-level undo."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the snapshot store."""
+        self._store: Store[dict] = Store(hass, STORAGE_VERSION, SNAPSHOT_KEY)
+        self._data: dict | None = None
+
+    async def async_load(self) -> None:
+        """Load the snapshot from disk."""
+        self._data = await self._store.async_load()
+
+    @property
+    def has_snapshot(self) -> bool:
+        """Whether a snapshot is available to restore."""
+        return bool(self._data and "device_consumption" in self._data)
+
+    @property
+    def device_consumption(self) -> list[dict]:
+        """Return the snapshotted device_consumption list."""
+        return list((self._data or {}).get("device_consumption", []))
+
+    async def async_save_snapshot(self, items: list[dict]) -> None:
+        """Store a snapshot of the given device_consumption list."""
+        self._data = {"device_consumption": list(items)}
+        await self._store.async_save(self._data)
+
+    async def async_clear(self) -> None:
+        """Drop the snapshot."""
+        self._data = None
+        await self._store.async_remove()

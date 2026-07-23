@@ -22,10 +22,11 @@ from homeassistant.helpers import (
 )
 
 from .const import DOMAIN
-from .topology import annotate, build_nodes, validate
+from .topology import annotate, build_nodes, sanitize_items, validate
 
 DATA_WS_REGISTERED = "energy_topology_ws_registered"
 DATA_PANEL_STORE = "panel_store"
+DATA_SNAPSHOT_STORE = "snapshot_store"
 
 
 @callback
@@ -36,6 +37,8 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get)
     websocket_api.async_register_command(hass, ws_preview)
     websocket_api.async_register_command(hass, ws_set_panel)
+    websocket_api.async_register_command(hass, ws_save)
+    websocket_api.async_register_command(hass, ws_undo)
     hass.data[DATA_WS_REGISTERED] = True
 
 
@@ -44,6 +47,13 @@ def _panel_ids(hass: HomeAssistant) -> set[str]:
     """Return the set of statistic ids manually marked as panels."""
     store = hass.data.get(DOMAIN, {}).get(DATA_PANEL_STORE)
     return store.ids if store is not None else set()
+
+
+@callback
+def _can_undo(hass: HomeAssistant) -> bool:
+    """Whether a previous device_consumption snapshot is available."""
+    snap = hass.data.get(DOMAIN, {}).get(DATA_SNAPSHOT_STORE)
+    return bool(snap and snap.has_snapshot)
 
 
 @callback
@@ -121,7 +131,7 @@ def _build_payload(
                 "floor_name": loc.get("floor_name"),
             }
         )
-    return {"nodes": payload_nodes, "issues": issues}
+    return {"nodes": payload_nodes, "issues": issues, "items": items}
 
 
 @websocket_api.websocket_command({vol.Required("type"): "energy_topology/get"})
@@ -135,7 +145,9 @@ async def ws_get(
     manager = await async_get_manager(hass)
     data = manager.data or {}
     items = data.get("device_consumption", []) or []
-    connection.send_result(msg["id"], _build_payload(hass, items))
+    result = _build_payload(hass, items)
+    result["can_undo"] = _can_undo(hass)
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.websocket_command(
@@ -178,4 +190,66 @@ async def ws_set_panel(
     manager = await async_get_manager(hass)
     data = manager.data or {}
     items = data.get("device_consumption", []) or []
-    connection.send_result(msg["id"], _build_payload(hass, items))
+    result = _build_payload(hass, items)
+    result["can_undo"] = _can_undo(hass)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "energy_topology/save",
+        vol.Required("device_consumption"): [dict],
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_save(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Write a new device_consumption list (admin only), after validation.
+
+    Snapshots the previous list so the change can be undone. Refuses to write if
+    the proposed topology has a structural error.
+    """
+    items = sanitize_items(msg["device_consumption"])
+    errors = [i for i in validate(build_nodes(items)) if i["severity"] == "error"]
+    if errors:
+        connection.send_error(msg["id"], "invalid_topology", errors[0]["message"])
+        return
+
+    snap = hass.data.get(DOMAIN, {}).get(DATA_SNAPSHOT_STORE)
+    manager = await async_get_manager(hass)
+    previous = list((manager.data or {}).get("device_consumption", []) or [])
+    if snap is not None:
+        await snap.async_save_snapshot(previous)
+    await manager.async_update({"device_consumption": items})
+
+    result = _build_payload(hass, items)
+    result["can_undo"] = _can_undo(hass)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({vol.Required("type"): "energy_topology/undo"})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_undo(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Restore the last snapshot of device_consumption (admin only)."""
+    snap = hass.data.get(DOMAIN, {}).get(DATA_SNAPSHOT_STORE)
+    if snap is None or not snap.has_snapshot:
+        connection.send_error(msg["id"], "no_snapshot", "Aucun état précédent à restaurer")
+        return
+
+    items = snap.device_consumption
+    manager = await async_get_manager(hass)
+    await manager.async_update({"device_consumption": items})
+    await snap.async_clear()
+
+    result = _build_payload(hass, items)
+    result["can_undo"] = _can_undo(hass)
+    connection.send_result(msg["id"], result)

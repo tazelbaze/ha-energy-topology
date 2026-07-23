@@ -107,9 +107,12 @@ official `save_prefs` path.
 
 ## 7. Security
 
-v0.1 is read-only and the panel is non-admin. As soon as write capability is
-added, the edit surface must be **admin-only** (`require_admin: true`) and every
-write must go through a preview + explicit confirmation.
+The panel is visible to non-admins in read-only mode. Every write path
+(`set_panel`, `save`, `undo`) is guarded by `require_admin`. `save` refuses a
+draft with a structural error, snapshots the previous `device_consumption`, and
+writes only that key through `manager.async_update`; `undo` restores the
+snapshot. This keeps energy sources and water consumption untouched and makes
+any change reversible one level deep.
 
 ## 8. Roadmap
 
@@ -120,8 +123,8 @@ write must go through a preview + explicit confirmation.
   cross-area / cross-floor rule.
 - **v0.4** — *(done)* manual panel marks for childless sub-meters (admin-only,
   kept in a dedicated store, `is_panel = has_children or marked`).
-- **v0.5** — guarded edit mode (add / re-parent, draft, preview, undo) via
-  `save_prefs`, admin only.
+- **v0.5** — *(done)* guarded edit mode (add / re-parent / remove, draft,
+  preview, one-level undo) via `save_prefs`, admin only.
 - **v0.6** — room coverage: per area, list energy devices not tracked in
   `device_consumption` (heuristic candidates, not hard errors).
 - **v0.7** — quantitative parent/children validation over a period.
