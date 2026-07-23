@@ -1,6 +1,7 @@
 {
   "domain": "energy_topology",
   "name": "Energy Topology",
+  "after_dependencies": ["energy"],
   "codeowners": ["@tazelbaze"],
   "config_flow": true,
   "documentation": "https://github.com/tazelbaze/ha-energy-topology",
@@ -8,5 +9,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/tazelbaze/ha-energy-topology/issues",
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

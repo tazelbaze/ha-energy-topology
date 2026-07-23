@@ -16,10 +16,13 @@ from .const import (
     PANEL_URL,
     STATIC_PATH,
 )
+from .websocket_api import async_register as async_register_ws
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Energy Topology from a config entry."""
+    async_register_ws(hass)
+
     frontend_path = Path(__file__).parent / "frontend"
     await hass.http.async_register_static_paths(
         [StaticPathConfig(STATIC_PATH, str(frontend_path), False)]

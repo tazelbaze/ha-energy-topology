@@ -55,9 +55,22 @@ Internal representation:
 - **self_parent** — `parentId == id`.
 - **cycle** — following `parentId` pointers returns to an already-visited node
   (detected with a white/grey/black DFS).
-- **quantitative_mismatch** (v0.2) — over a chosen period, a parent's consumption
-  is lower than the sum of its children's consumption (likely double-count or
-  mis-attribution).
+- **cross_floor / cross_area** *(v0.2)* — an `included_in_stat` link whose child
+  and parent sit in different floors (resp. areas). Reported at most once per
+  link, floor mismatch taking precedence. This is what breaks the native
+  Sankey's floor/area grouping.
+- **quantitative_mismatch** *(v0.4)* — over a chosen period, a parent's
+  consumption is lower than the sum of its children's consumption (likely
+  double-count or mis-attribution).
+
+### Location model (v0.2)
+
+Location is **orthogonal** to the topology and is never stored in the Energy
+prefs. Each node's area and floor are resolved live from the registries:
+statistic id → entity → (entity area, else device area) → area → floor. Rooms
+are HA **Areas**; the "RDC / Etage" style groups and remote electrical panels
+are HA **Floors** / floor-less Areas. A remote sub-panel is simply an upstream
+device (an intermediate topology node), not a new concept.
 
 ## 6. Architecture decision
 
@@ -70,7 +83,9 @@ reimplementation), and a future edit flow calling `energy/save_prefs` from the
 browser has no transactional safety. A backend command makes the logic testable,
 reusable, and lets edit/preview/undo be handled server-side.
 
-**Status:** planned for v0.3, before any write capability is added.
+**Status:** done in v0.2. `energy_topology/get` returns the enriched topology
+and issues; `energy_topology/preview` validates a proposed `device_consumption`
+list without writing. The panel is now a thin view over these commands.
 
 Home Assistant remains the source of truth for entities and statistics; this
 integration only reads a derived view and (later) proposes edits back through the
@@ -84,10 +99,13 @@ write must go through a preview + explicit confirmation.
 
 ## 8. Roadmap
 
-- **v0.1** — read-only inspection + structural validation *(current)*.
-- **v0.2** — quantitative parent/children validation over a period.
-- **v0.3** — backend WebSocket API; tests target the real logic.
-- **v0.4** — guarded edit mode (draft, preview, undo).
+- **v0.1** — read-only inspection + structural validation.
+- **v0.2** — *(done)* backend WebSocket API (tests target the real logic),
+  area/floor enrichment, cross-area / cross-floor detection.
+- **v0.3** — room coverage: per area, list energy devices not tracked in
+  `device_consumption` (heuristic candidates, not hard errors).
+- **v0.4** — quantitative parent/children validation over a period.
+- **v0.5** — guarded edit mode (draft, preview, undo) via `save_prefs`.
 - **v1.0** — HACS default-repository publication + full docs.
 
 ## 9. Open questions
