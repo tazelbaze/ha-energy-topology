@@ -92,9 +92,42 @@ class EnergyTopologyPanel extends HTMLElement {
     this._editing = true;
     this._draft = (this._items || []).map((it) => ({ ...it }));
     this._preview = null;
+    this._addFilter = "";
     this._render();
     await this._loadCandidates();
     this._render();
+  }
+
+  _availableCandidates() {
+    const tracked = new Set(this._draft.map((it) => it.stat_consumption));
+    const filter = (this._addFilter || "").trim().toLowerCase();
+    return (this._candidates || [])
+      .filter((s) => !tracked.has(s.statistic_id))
+      .filter((s) => !filter
+        || s.statistic_id.toLowerCase().includes(filter)
+        || (s.name || "").toLowerCase().includes(filter));
+  }
+
+  _candOptionsHtml(list) {
+    return [`<option value="">Choisir une statistique…</option>`]
+      .concat(list.slice(0, 200).map((s) => {
+        const unit = s.statistics_unit_of_measurement || s.display_unit_of_measurement || "";
+        const label = `${s.name || s.statistic_id}${unit ? ` (${unit})` : ""}`;
+        return `<option value="${ESC(s.statistic_id)}">${ESC(label)} — ${ESC(s.statistic_id)}</option>`;
+      }))
+      .join("");
+  }
+
+  _refreshCandidates() {
+    const sel = this.querySelector("#add-stat");
+    const hint = this.querySelector("#add-hint");
+    if (!sel) return;
+    const list = this._availableCandidates();
+    sel.innerHTML = this._candOptionsHtml(list);
+    if (hint) {
+      const shown = Math.min(list.length, 200);
+      hint.textContent = `${list.length} statistique(s) d'énergie disponible(s)${list.length > shown ? `, ${shown} affichées — affinez le filtre` : ""}.`;
+    }
   }
 
   _cancelEdit() {
@@ -304,8 +337,7 @@ class EnergyTopologyPanel extends HTMLElement {
   }
 
   _renderEdit() {
-    const tracked = new Set(this._draft.map((it) => it.stat_consumption));
-    const candidates = (this._candidates || []).filter((s) => !tracked.has(s.statistic_id));
+    const candidates = this._availableCandidates();
     const previewErrors = (this._preview?.issues || []).filter((i) => i.severity === "error");
     const previewed = this._preview !== null;
 
@@ -339,9 +371,7 @@ class EnergyTopologyPanel extends HTMLElement {
         </tr>`;
       }).join("");
 
-    const candOptions = [`<option value="">Choisir une statistique…</option>`]
-      .concat(candidates.map((s) => `<option value="${ESC(s.statistic_id)}">${ESC(s.name || s.statistic_id)}</option>`))
-      .join("");
+    const candOptions = this._candOptionsHtml(candidates);
 
     const parentAddOptions = [`<option value="">(racine)</option>`]
       .concat(this._draft.map((it) => `<option value="${ESC(it.stat_consumption)}">${ESC(this._label(it.stat_consumption))}</option>`))
@@ -368,13 +398,14 @@ class EnergyTopologyPanel extends HTMLElement {
       ${previewBlock}
       <section class="addbox">
         <h2>Ajouter un appareil</h2>
+        <input id="add-search" type="search" class="addsearch" placeholder="Filtrer les statistiques (nom ou statistic_id)…" value="${ESC(this._addFilter || "")}">
         <div class="addrow">
           <select id="add-stat">${candOptions}</select>
           <input id="add-name" type="text" placeholder="Nom d'affichage (optionnel)">
           <select id="add-parent">${parentAddOptions}</select>
           <button id="add-btn">Ajouter</button>
         </div>
-        <p class="hint">${candidates.length} statistique(s) d'énergie disponible(s) non encore suivie(s).</p>
+        <p id="add-hint" class="hint">${candidates.length} statistique(s) d'énergie disponible(s)${candidates.length > 200 ? `, 200 affichées — affinez le filtre` : ""}.</p>
       </section>
       <section class="editlist">
         <table>
@@ -409,6 +440,7 @@ class EnergyTopologyPanel extends HTMLElement {
     on("#preview", "click", () => this._doPreview());
     on("#apply", "click", () => this._apply());
     on("#cancel", "click", () => this._cancelEdit());
+    on("#add-search", "input", (e) => { this._addFilter = e.target.value; this._refreshCandidates(); });
     on("#add-btn", "click", () => {
       const stat = this.querySelector("#add-stat").value;
       const name = this.querySelector("#add-name").value.trim();
@@ -447,10 +479,12 @@ class EnergyTopologyPanel extends HTMLElement {
     button.mark{font-size:11px;padding:2px 9px;border-radius:999px;background:transparent;color:var(--secondary-text-color)}button.mark:hover,button.mark.active{border-color:var(--primary-color);color:var(--primary-color)}
     .badge{font-size:11px;border-radius:999px;padding:2px 7px;margin-left:auto}.ok-badge{background:rgba(30,160,90,.15)}.warn-badge{background:rgba(224,164,0,.2);color:var(--warning-color,#b7860b)}.error-badge{background:rgba(220,50,50,.2);color:var(--error-color)}.cycle{color:var(--error-color)}.error{padding:24px;color:var(--error-color)}
     .preview.ok{border-color:var(--success-color)}.preview.error{border-color:var(--error-color);color:var(--error-color)}.preview.none{color:var(--secondary-text-color)}
-    .addrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.addrow #add-stat,.addrow #add-name{flex:1;min-width:160px}.hint{font-size:13px;margin:8px 0 0}
+    .addsearch{width:100%;box-sizing:border-box;margin-bottom:10px}.addrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.addrow #add-stat,.addrow #add-name{flex:1;min-width:160px}.hint{font-size:13px;margin:8px 0 0}
     table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--divider-color);vertical-align:top}th{font-size:13px;color:var(--secondary-text-color)}td select{width:100%}tr.row-panel td{background:var(--secondary-background-color)}tr.row-panel td .tier{vertical-align:middle}
     @media(max-width:900px){.metrics{grid-template-columns:repeat(3,1fr)}}
     @media(max-width:700px){main{padding:14px}.metrics{grid-template-columns:repeat(2,1fr)}header{align-items:flex-start;flex-direction:column}}
   `; }
 }
-customElements.define("energy-topology-panel", EnergyTopologyPanel);
+if (!customElements.get("energy-topology-panel")) {
+  customElements.define("energy-topology-panel", EnergyTopologyPanel);
+}
