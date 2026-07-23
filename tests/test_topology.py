@@ -102,3 +102,36 @@ def test_rooms_are_direct_leaf_children_only():
     assert nodes["sensor.pool"]["rooms"] == ["Local Piscine"]
     # annexe has no direct leaf child (only the pool sub-panel).
     assert nodes["sensor.annexe"]["rooms"] == []
+
+
+def test_manual_flag_makes_childless_node_a_panel():
+    nodes = build_nodes([
+        {"stat_consumption": "sensor.main", "name": "Compteur"},
+        {"stat_consumption": "sensor.etage", "name": "Etage",
+         "included_in_stat": "sensor.main"},
+        {"stat_consumption": "sensor.oven", "name": "Four",
+         "included_in_stat": "sensor.main"},
+    ])
+    annotate(nodes, None, {"sensor.etage"})
+    assert nodes["sensor.etage"]["is_panel"] is True
+    assert nodes["sensor.etage"]["manual_panel"] is True
+    assert nodes["sensor.etage"]["has_children"] is False
+    assert nodes["sensor.etage"]["tier"] == 2  # secondaire under Compteur
+    # A plain appliance stays a leaf.
+    assert nodes["sensor.oven"]["is_panel"] is False
+
+
+def test_manual_panel_excluded_from_parent_rooms():
+    nodes = build_nodes([
+        {"stat_consumption": "sensor.main"},
+        {"stat_consumption": "sensor.etage", "included_in_stat": "sensor.main"},
+        {"stat_consumption": "sensor.oven", "included_in_stat": "sensor.main"},
+    ])
+    locations = {
+        "sensor.main": {"area_name": "Système"},
+        "sensor.etage": {"area_name": "Système"},
+        "sensor.oven": {"area_name": "Cuisine"},
+    }
+    annotate(nodes, locations, {"sensor.etage"})
+    # etage is a panel now, so it must not be counted as a room of main.
+    assert nodes["sensor.main"]["rooms"] == ["Cuisine"]

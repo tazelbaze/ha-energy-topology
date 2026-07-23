@@ -66,11 +66,18 @@ areas produces false positives.
 
 ### Panels / zones and location model (v0.3)
 
-A "zone" is a place with an electrical panel. This is **not** a new stored
-concept: a panel is an aggregating node of the `included_in_stat` forest, and
-the panel hierarchy (primary → secondary → tertiary) is exactly the topology
-tree. Each node is annotated with `is_panel` (has children), `tier` (depth from
-the root) and `rooms` (the areas of its direct leaf children).
+A "zone" is a place with an electrical panel. A panel is an aggregating node of
+the `included_in_stat` forest, and the panel hierarchy (primary → secondary →
+tertiary) is exactly the topology tree. Each node is annotated with `tier`
+(depth from the root), `rooms` (the areas of its direct appliance children) and
+`is_panel = has_children or manually marked`.
+
+A sub-meter that has no children (e.g. a floor sub-panel with nothing attached
+yet) is structurally indistinguishable from an appliance, and HA's strict
+`device_consumption` schema cannot carry a "this is a panel" flag (extra keys
+are rejected by `save_prefs`). So an admin can mark such a node as a panel; the
+mark is kept in a small dedicated store (`energy_topology.panels`), separate
+from the Energy config, and is pruned when the statistic no longer exists.
 
 Location is orthogonal to the topology and never stored in the Energy prefs.
 Each node's area and floor are resolved live from the registries: statistic id →
@@ -111,11 +118,13 @@ write must go through a preview + explicit confirmation.
   area/floor enrichment.
 - **v0.3** — *(done)* panels/zones tiers + rooms per panel; dropped the unsound
   cross-area / cross-floor rule.
-- **v0.4** — guarded edit mode (add / re-parent, draft, preview, undo) via
+- **v0.4** — *(done)* manual panel marks for childless sub-meters (admin-only,
+  kept in a dedicated store, `is_panel = has_children or marked`).
+- **v0.5** — guarded edit mode (add / re-parent, draft, preview, undo) via
   `save_prefs`, admin only.
-- **v0.5** — room coverage: per area, list energy devices not tracked in
+- **v0.6** — room coverage: per area, list energy devices not tracked in
   `device_consumption` (heuristic candidates, not hard errors).
-- **v0.6** — quantitative parent/children validation over a period.
+- **v0.7** — quantitative parent/children validation over a period.
 - **v1.0** — HACS default-repository publication + full docs.
 
 ## 9. Open questions

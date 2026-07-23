@@ -4,8 +4,8 @@ Diagnose and repair the device topology of the Home Assistant Energy dashboard.
 Detects cycles, missing parents and double-counting in your upstream
 (`included_in_stat`) relationships. Read-only today, safe editing next.
 
-> Status: **v0.3.0 — read-only**. This version cannot modify your Energy
-> configuration.
+> Status: **v0.4.0**. Read-only on the Energy configuration; admins can mark
+> nodes as panels (stored separately, never touching the Energy config).
 
 ## Why this exists
 
@@ -29,6 +29,9 @@ is a **forest** (a set of trees), not an arbitrary graph.
 - flags **cycles** (A → B → A);
 - treats aggregating nodes as **panels / zones** and labels them by tier
   (primary / secondary / tertiary = depth in the tree);
+- lets an admin **mark a childless sub-meter as a panel** (e.g. a floor
+  sub-panel with nothing attached yet) so it shows as a zone; marks are stored
+  separately and never touch the Energy config;
 - enriches every device with its **area and floor**, resolved from the Home
   Assistant registries (statistic → entity → device → area → floor), and shows
   the rooms each panel directly covers;
@@ -76,11 +79,13 @@ integration cannot break an existing setup.
 - **v0.2** — *(done)* backend WebSocket API, area/floor enrichment.
 - **v0.3** — *(done)* panels/zones tiers (primary/secondary/tertiary), rooms per
   panel; removed the unsound cross-area/cross-floor rule.
-- **v0.4** — safe edit mode: add and re-parent devices/panels from the panel,
-  with preview and undo before writing `save_prefs` (admin only).
-- **v0.5** — room coverage: per area, list energy devices not tracked in
+- **v0.4** — *(done)* manual panel marks for childless sub-meters (admin, stored
+  separately).
+- **v0.5** — safe edit mode: add and re-parent devices from the panel, with
+  preview and undo before writing `save_prefs` (admin only).
+- **v0.6** — room coverage: per area, list energy devices not tracked in
   `device_consumption` (heuristic candidates).
-- **v0.6** — quantitative validation: parent vs sum of children over a period.
+- **v0.7** — quantitative validation: parent vs sum of children over a period.
 - **v1.0** — HACS default-repository publication.
 
 ## Contributing / feedback

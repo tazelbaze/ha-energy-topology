@@ -21,9 +21,11 @@ from homeassistant.helpers import (
     floor_registry as fr,
 )
 
+from .const import DOMAIN
 from .topology import annotate, build_nodes, validate
 
 DATA_WS_REGISTERED = "energy_topology_ws_registered"
+DATA_PANEL_STORE = "panel_store"
 
 
 @callback
@@ -33,7 +35,15 @@ def async_register(hass: HomeAssistant) -> None:
         return
     websocket_api.async_register_command(hass, ws_get)
     websocket_api.async_register_command(hass, ws_preview)
+    websocket_api.async_register_command(hass, ws_set_panel)
     hass.data[DATA_WS_REGISTERED] = True
+
+
+@callback
+def _panel_ids(hass: HomeAssistant) -> set[str]:
+    """Return the set of statistic ids manually marked as panels."""
+    store = hass.data.get(DOMAIN, {}).get(DATA_PANEL_STORE)
+    return store.ids if store is not None else set()
 
 
 @callback
@@ -88,7 +98,7 @@ def _build_payload(
     """Build the nodes + issues payload from a device_consumption list."""
     nodes = build_nodes(items)
     locations = _resolve_locations(hass, list(nodes.keys()))
-    annotate(nodes, locations)
+    annotate(nodes, locations, _panel_ids(hass))
     issues = validate(nodes)
 
     payload_nodes = []
@@ -101,6 +111,8 @@ def _build_payload(
                 "parent_id": node["parent_id"],
                 "rate_id": node["rate_id"],
                 "is_panel": node["is_panel"],
+                "has_children": node["has_children"],
+                "manual_panel": node["manual_panel"],
                 "tier": node["tier"],
                 "rooms": node["rooms"],
                 "area_id": loc.get("area_id"),
@@ -141,3 +153,29 @@ async def ws_preview(
     """Validate a proposed device_consumption list without writing it."""
     payload = _build_payload(hass, msg["device_consumption"])
     connection.send_result(msg["id"], payload)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "energy_topology/set_panel",
+        vol.Required("statistic_id"): str,
+        vol.Required("is_panel"): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_panel(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Mark or unmark a node as a panel/zone (admin only), then return the topology."""
+    store = hass.data.get(DOMAIN, {}).get(DATA_PANEL_STORE)
+    if store is None:
+        connection.send_error(msg["id"], "not_ready", "Panel store not initialised")
+        return
+    await store.async_set(msg["statistic_id"], msg["is_panel"])
+    manager = await async_get_manager(hass)
+    data = manager.data or {}
+    items = data.get("device_consumption", []) or []
+    connection.send_result(msg["id"], _build_payload(hass, items))

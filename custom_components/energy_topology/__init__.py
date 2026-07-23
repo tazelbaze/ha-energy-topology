@@ -16,11 +16,18 @@ from .const import (
     PANEL_URL,
     STATIC_PATH,
 )
-from .websocket_api import async_register as async_register_ws
+from .store import PanelStore
+from .websocket_api import DATA_PANEL_STORE, async_register as async_register_ws
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Energy Topology from a config entry."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if DATA_PANEL_STORE not in domain_data:
+        store = PanelStore(hass)
+        await store.async_load()
+        domain_data[DATA_PANEL_STORE] = store
+
     async_register_ws(hass)
 
     frontend_path = Path(__file__).parent / "frontend"

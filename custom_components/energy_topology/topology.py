@@ -94,26 +94,35 @@ def _depth(nodes: dict[str, dict[str, Any]], node_id: str) -> int:
 def annotate(
     nodes: dict[str, dict[str, Any]],
     locations: dict[str, dict[str, Any]] | None = None,
+    panel_ids: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Annotate each node in place.
 
     Adds:
-    - ``is_panel``: the node aggregates children (a meter / electrical panel).
-    - ``tier``: depth from the root (1 = primary panel).
-    - ``rooms``: distinct area names of the node's direct *leaf* children
-      (the rooms this zone directly covers). Child panels are sub-zones and are
+    - ``has_children``: another node is included in this one.
+    - ``manual_panel``: this node is manually marked as a panel/zone.
+    - ``is_panel``: ``has_children or manual_panel`` (a meter / electrical panel).
+    - ``tier``: depth from the root (1 = primary panel), independent of children.
+    - ``rooms``: distinct area names of the node's direct *appliance* children
+      (leaves that are not themselves panels). Child panels are sub-zones and are
       not folded in here. Requires ``locations``.
     """
+    panel_ids = panel_ids or set()
     children = _children_map(nodes)
+
+    def _is_panel(node_id: str) -> bool:
+        return bool(children[node_id]) or node_id in panel_ids
+
     for node_id, node in nodes.items():
-        kids = children[node_id]
-        node["is_panel"] = bool(kids)
+        node["has_children"] = bool(children[node_id])
+        node["manual_panel"] = node_id in panel_ids
+        node["is_panel"] = _is_panel(node_id)
         node["tier"] = _depth(nodes, node_id)
         rooms: list[str] = []
         if locations:
-            for child_id in kids:
-                if children[child_id]:
-                    continue  # child is itself a panel / sub-zone
+            for child_id in children[node_id]:
+                if _is_panel(child_id):
+                    continue  # child is a panel / sub-zone, not an appliance
                 area_name = (locations.get(child_id) or {}).get("area_name")
                 if area_name and area_name not in rooms:
                     rooms.append(area_name)
