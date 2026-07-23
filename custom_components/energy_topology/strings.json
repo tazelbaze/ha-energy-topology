@@ -1,0 +1,14 @@
+{
+  "title": "Energy Topology",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Installer Energy Topology",
+        "description": "Ajoute une vue lecture seule qui diagnostique la topologie des appareils individuels du tableau Énergie (cycles, parents absents, doubles comptages)."
+      }
+    },
+    "abort": {
+      "already_configured": "Energy Topology est déjà configuré."
+    }
+  }
+}

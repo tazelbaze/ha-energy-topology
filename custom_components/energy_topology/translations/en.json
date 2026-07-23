@@ -1,0 +1,14 @@
+{
+  "title": "Energy Topology",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Install Energy Topology",
+        "description": "Adds a read-only view that diagnoses the topology of the Energy dashboard's individual devices (cycles, missing parents, double-counting)."
+      }
+    },
+    "abort": {
+      "already_configured": "Energy Topology is already configured."
+    }
+  }
+}
