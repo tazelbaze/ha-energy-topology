@@ -589,46 +589,57 @@ class EnergyTopologyPanel extends HTMLElement {
       if (!cur) nodeMap.set(id, { id, section, ...extra });
       else if (section > cur.section) cur.section = section;
     };
-    const walk = (node, section) => {
-      const extra = node.is_panel ? {} : { color: this._areaColor(node.area_name) };
-      ensure(node.id, section, extra);
-      const kids = node.children || [];
-      const subpanels = kids.filter((c) => c.is_panel);
-      const leaves = kids.filter((c) => !c.is_panel);
-      for (const sub of subpanels) {
-        links.push({ source: node.id, target: sub.id });
-        walk(sub, section + 1);
+
+    // Fix every room on the same column, past the deepest panel; appliances
+    // one column further. Panel -> room links that skip columns are turned
+    // into passthrough chains by the card itself.
+    const panels = [...(this._nodes?.values() || [])].filter((n) => n.is_panel);
+    const maxPanelSection = (panels.length ? Math.max(...panels.map((n) => n.tier)) : 1) - 1;
+    const ROOM_SECTION = maxPanelSection + 1;
+    const APPLIANCE_SECTION = ROOM_SECTION + 1;
+
+    const walkAppliance = (node, section) => {
+      ensure(node.id, section, { color: this._areaColor(node.area_name) });
+      for (const child of node.children || []) {
+        links.push({ source: node.id, target: child.id });
+        walkAppliance(child, section + 1);
       }
-      if (leaves.length && node.is_panel) {
-        // Insert a room node whose value is the sum of its appliances
-        // (add_entities), giving a room band without any per-room sensor.
-        const byRoom = new Map();
-        for (const leaf of leaves) {
-          const room = leaf.area_name || "Non localisé";
-          if (!byRoom.has(room)) byRoom.set(room, []);
-          byRoom.get(room).push(leaf);
-        }
-        for (const [room, items] of byRoom) {
-          const roomId = `room${roomCounter++}`;
-          ensure(roomId, section + 1, {
-            name: room,
-            color: this._areaColor(room === "Non localisé" ? null : room),
-            add_entities: items.map((i) => i.id),
-          });
-          links.push({ source: node.id, target: roomId });
-          for (const item of items) {
-            links.push({ source: roomId, target: item.id });
-            walk(item, section + 2);
-          }
-        }
-      } else {
-        for (const leaf of leaves) {
-          links.push({ source: node.id, target: leaf.id });
-          walk(leaf, section + 1);
+    };
+
+    const walkPanel = (panel) => {
+      ensure(panel.id, panel.tier - 1);
+      const kids = panel.children || [];
+      for (const sub of kids.filter((c) => c.is_panel)) {
+        links.push({ source: panel.id, target: sub.id });
+        walkPanel(sub);
+      }
+      const leaves = kids.filter((c) => !c.is_panel);
+      if (!leaves.length) return;
+      const byRoom = new Map();
+      for (const leaf of leaves) {
+        const room = leaf.area_name || "Non localisé";
+        if (!byRoom.has(room)) byRoom.set(room, []);
+        byRoom.get(room).push(leaf);
+      }
+      for (const [room, items] of byRoom) {
+        const roomId = `room${roomCounter++}`;
+        ensure(roomId, ROOM_SECTION, {
+          name: room,
+          color: this._areaColor(room === "Non localisé" ? null : room),
+          add_entities: items.map((i) => i.id),
+        });
+        links.push({ source: panel.id, target: roomId });
+        for (const item of items) {
+          links.push({ source: roomId, target: item.id });
+          walkAppliance(item, APPLIANCE_SECTION);
         }
       }
     };
-    for (const root of this._roots()) walk(root, 0);
+
+    for (const root of this._roots()) {
+      if (root.is_panel) walkPanel(root);
+      else walkAppliance(root, APPLIANCE_SECTION);
+    }
     return {
       type: "custom:sankey-chart",
       show_names: true,
