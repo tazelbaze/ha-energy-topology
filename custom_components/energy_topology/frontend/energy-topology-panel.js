@@ -626,25 +626,39 @@ class EnergyTopologyPanel extends HTMLElement {
     };
   }
 
+  async _ensureSankeyDefined() {
+    if (customElements.get("sankey-chart")) return true;
+    let resources = [];
+    try { resources = await this._hass.callWS({ type: "lovelace/resources" }); } catch (e) { resources = []; }
+    const res = (resources || []).find((r) => /sankey-chart/i.test(r.url || "")) || (resources || []).find((r) => /sankey/i.test(r.url || ""));
+    if (res && res.url) {
+      try { await import(res.url); } catch (e) { /* ignore */ }
+    }
+    // Fallback: card helpers (available in some contexts) can pull the resource.
+    if (!customElements.get("sankey-chart") && window.loadCardHelpers) {
+      try { await window.loadCardHelpers(); } catch (e) { /* ignore */ }
+    }
+    return Boolean(customElements.get("sankey-chart"));
+  }
+
   async _mountSankey() {
     const host = this.querySelector("#sankey-host");
     if (!host) return;
+    const config = this._buildSankeyConfig();
+    if (!config.nodes.length) { host.innerHTML = `<div class="hint">Topologie vide : ajoute des appareils dans l'onglet Configuration.</div>`; return; }
     try {
-      const config = this._buildSankeyConfig();
-      if (!config.nodes.length) { host.innerHTML = `<div class="hint">Topologie vide : ajoute des appareils dans l'onglet Configuration.</div>`; return; }
-      if (!this._sankeyCard) {
-        if (!window.loadCardHelpers) { host.innerHTML = `<div class="error">Helpers Lovelace indisponibles.</div>`; return; }
-        const helpers = await window.loadCardHelpers();
-        this._sankeyCard = await helpers.createCardElement(config);
-        this._sankeyCard.hass = this._hass;
-      } else {
-        this._sankeyCard.setConfig(config);
-        this._sankeyCard.hass = this._hass;
+      const defined = await this._ensureSankeyDefined();
+      if (!defined) {
+        host.innerHTML = `<div class="error">Carte <code>sankey-chart</code> introuvable dans les ressources Lovelace. Vérifie que ha-sankey-chart (MindFreeze) est installée et référencée en ressource.</div>`;
+        return;
       }
+      if (!this._sankeyCard) this._sankeyCard = document.createElement("sankey-chart");
+      this._sankeyCard.setConfig(config);
+      this._sankeyCard.hass = this._hass;
       host.innerHTML = "";
       host.appendChild(this._sankeyCard);
     } catch (err) {
-      host.innerHTML = `<div class="error">Sankey indisponible : ${ESC(err?.message || err)}. Vérifie que la carte ha-sankey-chart (MindFreeze) est bien installée.</div>`;
+      host.innerHTML = `<div class="error">Sankey indisponible : ${ESC(err?.message || err)}</div>`;
     }
   }
 
