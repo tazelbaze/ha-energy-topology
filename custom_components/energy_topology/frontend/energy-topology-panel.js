@@ -568,49 +568,33 @@ class EnergyTopologyPanel extends HTMLElement {
         <div class="actions">${sel}</div>
       </header>
       <div id="banner" class="banner"></div>
-      <div id="sankey-host" class="sankey-host"></div>`;
+      <div id="sankey-host" class="sankey-host"></div>
+      ${this._roomLegend()}`;
+  }
+
+  _areaColor(area) {
+    if (!area) return "var(--disabled-text-color, #888888)";
+    const palette = ["#e57373", "#64b5f6", "#81c784", "#ffb74d", "#ba68c8", "#4db6ac", "#f06292", "#a1887f", "#90a4ae", "#9575cd", "#4fc3f7", "#aed581"];
+    let hash = 0;
+    for (const ch of area) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+    return palette[hash % palette.length];
   }
 
   _buildSankeyConfig() {
     const nodeMap = new Map();
     const links = [];
-    let ptCounter = 0;
     const ensure = (id, section, extra = {}) => {
       const cur = nodeMap.get(id);
       if (!cur) nodeMap.set(id, { id, section, ...extra });
       else if (section > cur.section) cur.section = section;
     };
     const walk = (node, section) => {
-      ensure(node.id, section);
-      const kids = node.children || [];
-      const subpanels = kids.filter((c) => c.is_panel);
-      const leaves = kids.filter((c) => !c.is_panel);
-      for (const sub of subpanels) {
-        links.push({ source: node.id, target: sub.id });
-        walk(sub, section + 1);
-      }
-      if (leaves.length && node.is_panel) {
-        const byRoom = new Map();
-        for (const leaf of leaves) {
-          const room = leaf.area_name || "Non localisé";
-          if (!byRoom.has(room)) byRoom.set(room, []);
-          byRoom.get(room).push(leaf);
-        }
-        for (const [room, items] of byRoom) {
-          // Simple token id (no dots/colons) so the card doesn't read it as an entity.
-          const roomId = `pt${ptCounter++}`;
-          ensure(roomId, section + 1, { type: "passthrough", name: room });
-          links.push({ source: node.id, target: roomId });
-          for (const item of items) {
-            links.push({ source: roomId, target: item.id });
-            walk(item, section + 2);
-          }
-        }
-      } else {
-        for (const leaf of leaves) {
-          links.push({ source: node.id, target: leaf.id });
-          walk(leaf, section + 1);
-        }
+      // Colour appliances by room; panels keep the theme colour.
+      const extra = node.is_panel ? {} : { color: this._areaColor(node.area_name) };
+      ensure(node.id, section, extra);
+      for (const child of node.children || []) {
+        links.push({ source: node.id, target: child.id });
+        walk(child, section + 1);
       }
     };
     for (const root of this._roots()) walk(root, 0);
@@ -620,12 +604,25 @@ class EnergyTopologyPanel extends HTMLElement {
       show_states: true,
       unit_prefix: "k",
       round: 1,
-      height: 420,
+      height: 460,
       ignore_missing_entities: true,
       time_period_from: this._sankeyPeriod || "now/d",
       nodes: [...nodeMap.values()],
       links,
     };
+  }
+
+  _roomLegend() {
+    const areas = new Map();
+    for (const node of (this._nodes?.values() || [])) {
+      if (node.is_panel) continue;
+      const area = node.area_name || "Non localisé";
+      if (!areas.has(area)) areas.set(area, this._areaColor(node.area_name));
+    }
+    if (!areas.size) return "";
+    const items = [...areas.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([area, color]) => `<span class="leg"><span class="dot" style="background:${color}"></span>${ESC(area)}</span>`).join("");
+    return `<div class="legend">${items}</div>`;
   }
 
   async _ensureSankeyDefined() {
@@ -717,6 +714,7 @@ class EnergyTopologyPanel extends HTMLElement {
     .tabs{display:flex;gap:6px;border-bottom:1px solid var(--divider-color);margin-bottom:18px}.tabs .tab{background:transparent;border:0;border-bottom:2px solid transparent;border-radius:0;padding:10px 14px;cursor:pointer;color:var(--secondary-text-color);font-weight:600}.tabs .tab.active{color:var(--primary-text-color);border-bottom-color:var(--primary-color)}
     .period.active{border-color:var(--primary-color);color:var(--primary-color)}
     .sankey-host{margin-top:8px;min-height:200px}
+    .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px;padding-top:12px;border-top:1px solid var(--divider-color)}.leg{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--secondary-text-color)}.leg .dot{width:12px;height:12px;border-radius:3px;display:inline-block}
     .actions{display:flex;gap:8px;flex-wrap:wrap}
     button,input,select{font:inherit;border:1px solid var(--divider-color);border-radius:10px;padding:9px 13px;background:var(--card-background-color);color:inherit}
     button{cursor:pointer;background:var(--primary-color);color:var(--text-primary-color)}button.ghost{background:var(--card-background-color);color:inherit}button:disabled{opacity:.5;cursor:not-allowed}
