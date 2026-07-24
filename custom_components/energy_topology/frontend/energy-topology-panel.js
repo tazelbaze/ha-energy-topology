@@ -583,18 +583,49 @@ class EnergyTopologyPanel extends HTMLElement {
   _buildSankeyConfig() {
     const nodeMap = new Map();
     const links = [];
+    let roomCounter = 0;
     const ensure = (id, section, extra = {}) => {
       const cur = nodeMap.get(id);
       if (!cur) nodeMap.set(id, { id, section, ...extra });
       else if (section > cur.section) cur.section = section;
     };
     const walk = (node, section) => {
-      // Colour appliances by room; panels keep the theme colour.
       const extra = node.is_panel ? {} : { color: this._areaColor(node.area_name) };
       ensure(node.id, section, extra);
-      for (const child of node.children || []) {
-        links.push({ source: node.id, target: child.id });
-        walk(child, section + 1);
+      const kids = node.children || [];
+      const subpanels = kids.filter((c) => c.is_panel);
+      const leaves = kids.filter((c) => !c.is_panel);
+      for (const sub of subpanels) {
+        links.push({ source: node.id, target: sub.id });
+        walk(sub, section + 1);
+      }
+      if (leaves.length && node.is_panel) {
+        // Insert a room node whose value is the sum of its appliances
+        // (add_entities), giving a room band without any per-room sensor.
+        const byRoom = new Map();
+        for (const leaf of leaves) {
+          const room = leaf.area_name || "Non localisé";
+          if (!byRoom.has(room)) byRoom.set(room, []);
+          byRoom.get(room).push(leaf);
+        }
+        for (const [room, items] of byRoom) {
+          const roomId = `room${roomCounter++}`;
+          ensure(roomId, section + 1, {
+            name: room,
+            color: this._areaColor(room === "Non localisé" ? null : room),
+            add_entities: items.map((i) => i.id),
+          });
+          links.push({ source: node.id, target: roomId });
+          for (const item of items) {
+            links.push({ source: roomId, target: item.id });
+            walk(item, section + 2);
+          }
+        }
+      } else {
+        for (const leaf of leaves) {
+          links.push({ source: node.id, target: leaf.id });
+          walk(leaf, section + 1);
+        }
       }
     };
     for (const root of this._roots()) walk(root, 0);
