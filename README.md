@@ -95,6 +95,8 @@ water consumption are preserved.
   (daily / monthly / yearly) then by room before choosing the entity.
 - **v0.8** — *(done)* room coverage: per area, list energy devices not tracked
   in `device_consumption` (heuristic, deduped by device).
+- **v0.9** — *(done)* optional room grouping under each panel (display-only
+  accordions; sub-panels stay topology nodes).
 - **v1.0** — HACS default-repository publication.
 
 ## Contributing / feedback

@@ -32,6 +32,7 @@ class EnergyTopologyPanel extends HTMLElement {
   }
 
   _applyView(result) {
+    if (this._groupByRoom === undefined) this._groupByRoom = true;
     this._nodes = this._indexNodes(result.nodes || []);
     this._issues = result.issues || [];
     this._items = result.items || [];
@@ -312,7 +313,32 @@ class EnergyTopologyPanel extends HTMLElement {
     return `<button class="mark" data-act="mark" data-id="${ESC(node.id)}" data-panel="true" title="Marquer comme tableau">+ tableau</button>`;
   }
 
-  _renderNode(node, ancestry = new Set()) {
+  _renderChildren(children, ancestry) {
+    const sorted = this._sortNodes(children);
+    if (!this._groupByRoom) {
+      return sorted.map((c) => this._renderNode(c, ancestry)).join("");
+    }
+    // Sub-panels stay as topology nodes; direct appliances group by room.
+    const panels = sorted.filter((c) => c.is_panel);
+    const leaves = sorted.filter((c) => !c.is_panel);
+    let html = panels.map((c) => this._renderNode(c, ancestry)).join("");
+    if (leaves.length) {
+      const byRoom = new Map();
+      for (const leaf of leaves) {
+        const room = leaf.area_name || "Non localisé";
+        if (!byRoom.has(room)) byRoom.set(room, []);
+        byRoom.get(room).push(leaf);
+      }
+      const rooms = [...byRoom.keys()].sort((a, b) => (a === "Non localisé" ? 1 : b === "Non localisé" ? -1 : a.localeCompare(b)));
+      for (const room of rooms) {
+        const items = byRoom.get(room);
+        html += `<li class="room-group"><details open><summary><span class="room-head">${ESC(room)}</span><span class="badge ok-badge">${items.length}</span></summary><ul>${items.map((c) => this._renderNode(c, ancestry, { hideLoc: true })).join("")}</ul></details></li>`;
+      }
+    }
+    return html;
+  }
+
+  _renderNode(node, ancestry = new Set(), opts = {}) {
     if (ancestry.has(node.id)) return `<li class="cycle">Cycle vers ${ESC(node.name)}</li>`;
     const next = new Set(ancestry); next.add(node.id);
     const errors = this._issues.filter((i) => i.node === node.id && i.severity === "error").length;
@@ -322,10 +348,9 @@ class EnergyTopologyPanel extends HTMLElement {
       : warns
         ? `<span class="badge warn-badge">${warns}</span>`
         : `<span class="badge ok-badge">OK</span>`;
-    const children = this._sortNodes(node.children);
     const link = node.parent_id ? `<span class="parent">inclus dans ${ESC(node.parent_id)}</span>` : `<span class="root">racine</span>`;
     const located = node.area_name || node.floor_name;
-    const locChip = `<span class="loc ${located ? "" : "loc-none"}">${ESC(this._location(node))}</span>`;
+    const locChip = opts.hideLoc ? "" : `<span class="loc ${located ? "" : "loc-none"}">${ESC(this._location(node))}</span>`;
 
     let head;
     if (node.is_panel) {
@@ -337,7 +362,7 @@ class EnergyTopologyPanel extends HTMLElement {
 
     return `<li class="${node.is_panel ? "is-panel" : ""}">
       <details open><summary>${head}</summary>
-      ${children.length ? `<ul>${children.map((c) => this._renderNode(c, next)).join("")}</ul>` : ""}
+      ${node.children.length ? `<ul>${this._renderChildren(node.children, next)}</ul>` : ""}
       </details></li>`;
   }
 
@@ -352,7 +377,7 @@ class EnergyTopologyPanel extends HTMLElement {
       ? `<section class="issues"><h2>Anomalies</h2>${errors.map((i) => `<div class="issue"><span class="pill error">erreur</span><strong>${ESC(i.node)}</strong> — ${ESC(i.message)}</div>`).join("")}</section>`
       : `<section class="success">Aucune boucle, parent absent ni auto-référence détectés.</section>`;
 
-    const actions = `<button id="coverage" class="ghost">Couverture par pièce</button><button id="quant" class="ghost">Vérifier les quantités (30 j)</button>${this._isAdmin ? `<button id="edit">Éditer</button>${this._canUndo ? `<button id="undo" class="ghost">Revenir à l'état précédent</button>` : ""}` : ""}`;
+    const actions = `<button id="group" class="ghost">${this._groupByRoom ? "Vue à plat" : "Grouper par pièce"}</button><button id="coverage" class="ghost">Couverture par pièce</button><button id="quant" class="ghost">Vérifier les quantités (30 j)</button>${this._isAdmin ? `<button id="edit">Éditer</button>${this._canUndo ? `<button id="undo" class="ghost">Revenir à l'état précédent</button>` : ""}` : ""}`;
 
     const coverageBlock = this._coverage
       ? (this._coverage.size
@@ -383,7 +408,7 @@ class EnergyTopologyPanel extends HTMLElement {
       ${issueBlock}
       ${quantBlock}
       ${coverageBlock}
-      <section class="tree"><ul>${this._sortNodes(roots).map((r) => this._renderNode(r)).join("")}</ul></section>`;
+      <section class="tree"><ul>${this._renderChildren(roots, new Set())}</ul></section>`;
   }
 
   // ---- edit render --------------------------------------------------------
@@ -527,6 +552,7 @@ class EnergyTopologyPanel extends HTMLElement {
 
     if (!this._editing) {
       on("#refresh", "click", () => { this._loaded = false; this._load(); });
+      on("#group", "click", () => { this._groupByRoom = !this._groupByRoom; this._render(); });
       on("#coverage", "click", () => this._showCoverage());
       on("#quant", "click", () => this._checkQuantities());
       on("#edit", "click", () => this._enterEdit());
@@ -577,6 +603,7 @@ class EnergyTopologyPanel extends HTMLElement {
     .issue{display:flex;align-items:center;gap:8px;padding:4px 0}.pill{font-size:11px;border-radius:999px;padding:2px 8px;text-transform:uppercase}.pill.error{background:rgba(220,50,50,.18);color:var(--error-color)}.pill.warn{background:rgba(224,164,0,.2);color:var(--warning-color,#b7860b)}
     ul{list-style:none;margin:0;padding-left:22px}.tree>ul{padding-left:0}li{margin:6px 0}summary{display:flex;align-items:center;gap:9px;flex-wrap:wrap;cursor:pointer;padding:8px;border-radius:8px}summary:hover{background:var(--secondary-background-color)}
     li.is-panel>details>summary{background:var(--secondary-background-color);border:1px solid var(--divider-color)}
+    li.room-group>details>summary{background:transparent;border:1px dashed var(--divider-color);color:var(--secondary-text-color)}.room-head{font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:.03em}
     .node-name{font-weight:600}.panel-name{font-weight:700}code{font-size:12px;color:var(--secondary-text-color)}.parent,.root{font-size:12px;color:var(--secondary-text-color)}
     .tier{font-size:11px;font-weight:700;text-transform:uppercase;border-radius:6px;padding:2px 8px;background:var(--primary-color);color:var(--text-primary-color)}.tier-2{background:var(--accent-color,#3f7fd0)}.tier-3{background:var(--state-icon-active-color,#7a52c7)}
     .chip{font-size:12px;border-radius:999px;padding:1px 8px}.chip.room{border:1px solid var(--divider-color);color:var(--secondary-text-color)}.chip.manual{border:1px dashed var(--primary-color);color:var(--primary-color)}
