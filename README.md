@@ -100,6 +100,9 @@ water consumption are preserved.
 - **v0.10** — *(done)* "not a panel" override: a node can be a parent (for
   double-count, e.g. a smart plug measuring a device) without being styled as a
   panel.
+- **v0.11** — *(done)* Vue / Configuration tabs; embedded Sankey (ha-sankey-chart)
+  generated from the topology with a room band (passthrough nodes) and a
+  day/month/year period selector.
 - **v1.0** — HACS default-repository publication.
 
 ## Contributing / feedback

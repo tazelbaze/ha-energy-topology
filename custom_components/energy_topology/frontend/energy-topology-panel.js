@@ -7,6 +7,7 @@ const TIER_LABEL = (tier) => ({ 1: "Primaire", 2: "Secondaire", 3: "Tertiaire" }
 class EnergyTopologyPanel extends HTMLElement {
   set hass(value) {
     this._hass = value;
+    if (this._sankeyCard) this._sankeyCard.hass = value;
     if (!this._loaded) this._load();
   }
 
@@ -15,6 +16,8 @@ class EnergyTopologyPanel extends HTMLElement {
   get _isAdmin() { return Boolean(this._hass?.user?.is_admin); }
 
   connectedCallback() {
+    if (this._tab === undefined) this._tab = "vue";
+    if (this._sankeyPeriod === undefined) this._sankeyPeriod = "now/d";
     this.innerHTML = `<style>${this._styles()}</style><main><div class="loading">Chargement de la topologie…</div></main>`;
   }
 
@@ -543,13 +546,115 @@ class EnergyTopologyPanel extends HTMLElement {
   }
 
   _render() {
-    const body = this._editing ? this._renderEdit() : this._renderView();
-    this.innerHTML = `<style>${this._styles()}</style><main>${body}</main>`;
+    const tab = this._tab || "vue";
+    const tabs = `<nav class="tabs">
+      <button class="tab ${tab === "vue" ? "active" : ""}" data-tab="vue">Vue</button>
+      <button class="tab ${tab === "config" ? "active" : ""}" data-tab="config">Configuration</button>
+    </nav>`;
+    let body;
+    if (tab === "vue") body = this._renderSankeyShell();
+    else body = this._editing ? this._renderEdit() : this._renderView();
+    this.innerHTML = `<style>${this._styles()}</style><main>${tabs}${body}</main>`;
     this._bind();
+    if (tab === "vue") this._mountSankey();
+  }
+
+  _renderSankeyShell() {
+    const periods = [["now/d", "Jour"], ["now/M", "Mois"], ["now/y", "Année"]];
+    const sel = periods.map(([v, l]) => `<button class="ghost period ${this._sankeyPeriod === v ? "active" : ""}" data-period="${v}">${l}</button>`).join("");
+    return `
+      <header>
+        <div><h1>Flux d'énergie</h1><p>Sankey construit sur ta topologie : tableaux, pièces, appareils.</p></div>
+        <div class="actions">${sel}</div>
+      </header>
+      <div id="banner" class="banner"></div>
+      <div id="sankey-host" class="sankey-host"></div>`;
+  }
+
+  _buildSankeyConfig() {
+    const nodeMap = new Map();
+    const links = [];
+    const ensure = (id, section, extra = {}) => {
+      const cur = nodeMap.get(id);
+      if (!cur) nodeMap.set(id, { id, section, ...extra });
+      else if (section > cur.section) cur.section = section;
+    };
+    const walk = (node, section) => {
+      ensure(node.id, section);
+      const kids = node.children || [];
+      const subpanels = kids.filter((c) => c.is_panel);
+      const leaves = kids.filter((c) => !c.is_panel);
+      for (const sub of subpanels) {
+        links.push({ source: node.id, target: sub.id });
+        walk(sub, section + 1);
+      }
+      if (leaves.length && node.is_panel) {
+        const byRoom = new Map();
+        for (const leaf of leaves) {
+          const room = leaf.area_name || "Non localisé";
+          if (!byRoom.has(room)) byRoom.set(room, []);
+          byRoom.get(room).push(leaf);
+        }
+        for (const [room, items] of byRoom) {
+          const roomId = `room::${node.id}::${room}`;
+          ensure(roomId, section + 1, { type: "passthrough", name: room });
+          links.push({ source: node.id, target: roomId });
+          for (const item of items) {
+            links.push({ source: roomId, target: item.id });
+            walk(item, section + 2);
+          }
+        }
+      } else {
+        for (const leaf of leaves) {
+          links.push({ source: node.id, target: leaf.id });
+          walk(leaf, section + 1);
+        }
+      }
+    };
+    for (const root of this._roots()) walk(root, 0);
+    return {
+      type: "custom:sankey-chart",
+      show_names: true,
+      show_states: true,
+      unit_prefix: "k",
+      round: 1,
+      height: 420,
+      ignore_missing_entities: true,
+      time_period_from: this._sankeyPeriod || "now/d",
+      nodes: [...nodeMap.values()],
+      links,
+    };
+  }
+
+  async _mountSankey() {
+    const host = this.querySelector("#sankey-host");
+    if (!host) return;
+    try {
+      const config = this._buildSankeyConfig();
+      if (!config.nodes.length) { host.innerHTML = `<div class="hint">Topologie vide : ajoute des appareils dans l'onglet Configuration.</div>`; return; }
+      if (!this._sankeyCard) {
+        if (!window.loadCardHelpers) { host.innerHTML = `<div class="error">Helpers Lovelace indisponibles.</div>`; return; }
+        const helpers = await window.loadCardHelpers();
+        this._sankeyCard = await helpers.createCardElement(config);
+        this._sankeyCard.hass = this._hass;
+      } else {
+        this._sankeyCard.setConfig(config);
+        this._sankeyCard.hass = this._hass;
+      }
+      host.innerHTML = "";
+      host.appendChild(this._sankeyCard);
+    } catch (err) {
+      host.innerHTML = `<div class="error">Sankey indisponible : ${ESC(err?.message || err)}. Vérifie que la carte ha-sankey-chart (MindFreeze) est bien installée.</div>`;
+    }
   }
 
   _bind() {
     const on = (sel, ev, fn) => { const el = this.querySelector(sel); if (el) el.addEventListener(ev, fn); };
+
+    this.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => { this._tab = b.dataset.tab; this._render(); }));
+    this.querySelectorAll(".period").forEach((b) => b.addEventListener("click", () => { this._sankeyPeriod = b.dataset.period; this._render(); }));
+
+    if (this._tab === "vue") return;
 
     if (!this._editing) {
       on("#refresh", "click", () => { this._loaded = false; this._load(); });
@@ -593,6 +698,9 @@ class EnergyTopologyPanel extends HTMLElement {
   _styles() { return `
     :host{display:block;background:var(--primary-background-color);color:var(--primary-text-color);min-height:100%;font-family:var(--paper-font-body1_-_font-family,system-ui)}
     main{max-width:1200px;margin:auto;padding:24px} header{display:flex;justify-content:space-between;gap:16px;align-items:center} h1{margin:0;font-size:26px} h2{font-size:18px} p{color:var(--secondary-text-color)}
+    .tabs{display:flex;gap:6px;border-bottom:1px solid var(--divider-color);margin-bottom:18px}.tabs .tab{background:transparent;border:0;border-bottom:2px solid transparent;border-radius:0;padding:10px 14px;cursor:pointer;color:var(--secondary-text-color);font-weight:600}.tabs .tab.active{color:var(--primary-text-color);border-bottom-color:var(--primary-color)}
+    .period.active{border-color:var(--primary-color);color:var(--primary-color)}
+    .sankey-host{margin-top:8px;min-height:200px}
     .actions{display:flex;gap:8px;flex-wrap:wrap}
     button,input,select{font:inherit;border:1px solid var(--divider-color);border-radius:10px;padding:9px 13px;background:var(--card-background-color);color:inherit}
     button{cursor:pointer;background:var(--primary-color);color:var(--text-primary-color)}button.ghost{background:var(--card-background-color);color:inherit}button:disabled{opacity:.5;cursor:not-allowed}
