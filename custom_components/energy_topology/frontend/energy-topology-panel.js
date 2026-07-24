@@ -623,10 +623,13 @@ class EnergyTopologyPanel extends HTMLElement {
       }
       for (const [room, items] of byRoom) {
         const roomId = `room${roomCounter++}`;
+        // Base the room on a real entity (first appliance) and sum the rest via
+        // add_entities, so the room node always has a valid base state.
         ensure(roomId, ROOM_SECTION, {
           name: room,
           color: this._areaColor(room === "Non localisé" ? null : room),
-          add_entities: items.map((i) => i.id),
+          entity_id: items[0].id,
+          add_entities: items.slice(1).map((i) => i.id),
         });
         links.push({ source: panel.id, target: roomId });
         for (const item of items) {
