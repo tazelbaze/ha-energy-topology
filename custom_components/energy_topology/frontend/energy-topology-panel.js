@@ -574,6 +574,7 @@ class EnergyTopologyPanel extends HTMLElement {
   _buildSankeyConfig() {
     const nodeMap = new Map();
     const links = [];
+    let ptCounter = 0;
     const ensure = (id, section, extra = {}) => {
       const cur = nodeMap.get(id);
       if (!cur) nodeMap.set(id, { id, section, ...extra });
@@ -596,7 +597,8 @@ class EnergyTopologyPanel extends HTMLElement {
           byRoom.get(room).push(leaf);
         }
         for (const [room, items] of byRoom) {
-          const roomId = `room::${node.id}::${room}`;
+          // Simple token id (no dots/colons) so the card doesn't read it as an entity.
+          const roomId = `pt${ptCounter++}`;
           ensure(roomId, section + 1, { type: "passthrough", name: room });
           links.push({ source: node.id, target: roomId });
           for (const item of items) {
