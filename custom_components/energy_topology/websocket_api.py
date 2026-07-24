@@ -51,9 +51,16 @@ def async_register(hass: HomeAssistant) -> None:
 
 @callback
 def _panel_ids(hass: HomeAssistant) -> set[str]:
-    """Return the set of statistic ids manually marked as panels."""
+    """Return the set of statistic ids forced to be panels."""
     store = hass.data.get(DOMAIN, {}).get(DATA_PANEL_STORE)
-    return store.ids if store is not None else set()
+    return store.panel_ids if store is not None else set()
+
+
+@callback
+def _appliance_ids(hass: HomeAssistant) -> set[str]:
+    """Return the set of statistic ids forced to not be panels."""
+    store = hass.data.get(DOMAIN, {}).get(DATA_PANEL_STORE)
+    return store.appliance_ids if store is not None else set()
 
 
 @callback
@@ -115,7 +122,7 @@ def _build_payload(
     """Build the nodes + issues payload from a device_consumption list."""
     nodes = build_nodes(items)
     locations = _resolve_locations(hass, list(nodes.keys()))
-    annotate(nodes, locations, _panel_ids(hass))
+    annotate(nodes, locations, _panel_ids(hass), _appliance_ids(hass))
     issues = validate(nodes)
 
     payload_nodes = []
@@ -130,6 +137,7 @@ def _build_payload(
                 "is_panel": node["is_panel"],
                 "has_children": node["has_children"],
                 "manual_panel": node["manual_panel"],
+                "manual_appliance": node["manual_appliance"],
                 "tier": node["tier"],
                 "rooms": node["rooms"],
                 "area_id": loc.get("area_id"),

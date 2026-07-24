@@ -124,6 +124,23 @@ def test_manual_flag_makes_childless_node_a_panel():
     assert nodes["sensor.oven"]["is_panel"] is False
 
 
+def test_appliance_override_keeps_parent_but_not_panel():
+    # A smart plug (sensor.plug) measures a device plugged into it (sensor.echo).
+    nodes = build_nodes([
+        {"stat_consumption": "sensor.panel"},
+        {"stat_consumption": "sensor.plug", "included_in_stat": "sensor.panel"},
+        {"stat_consumption": "sensor.echo", "included_in_stat": "sensor.plug"},
+    ])
+    annotate(nodes, None, set(), {"sensor.plug"})
+    # The plug still has a child (parent relationship preserved)...
+    assert nodes["sensor.plug"]["has_children"] is True
+    # ...but is not treated as a panel.
+    assert nodes["sensor.plug"]["is_panel"] is False
+    assert nodes["sensor.plug"]["manual_appliance"] is True
+    # The panel above it is unaffected.
+    assert nodes["sensor.panel"]["is_panel"] is True
+
+
 def test_manual_panel_excluded_from_parent_rooms():
     nodes = build_nodes([
         {"stat_consumption": "sensor.main"},

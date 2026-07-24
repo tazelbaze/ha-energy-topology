@@ -161,27 +161,34 @@ def annotate(
     nodes: dict[str, dict[str, Any]],
     locations: dict[str, dict[str, Any]] | None = None,
     panel_ids: set[str] | None = None,
+    appliance_ids: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Annotate each node in place.
 
     Adds:
     - ``has_children``: another node is included in this one.
-    - ``manual_panel``: this node is manually marked as a panel/zone.
-    - ``is_panel``: ``has_children or manual_panel`` (a meter / electrical panel).
+    - ``manual_panel``: forced to be a panel/zone.
+    - ``manual_appliance``: forced to NOT be a panel, even with children (e.g. a
+      smart plug measuring a device plugged into it).
+    - ``is_panel``: ``manual_panel or (has_children and not manual_appliance)``.
     - ``tier``: depth from the root (1 = primary panel), independent of children.
     - ``rooms``: distinct area names of the node's direct *appliance* children
       (leaves that are not themselves panels). Child panels are sub-zones and are
       not folded in here. Requires ``locations``.
     """
     panel_ids = panel_ids or set()
+    appliance_ids = appliance_ids or set()
     children = _children_map(nodes)
 
     def _is_panel(node_id: str) -> bool:
-        return bool(children[node_id]) or node_id in panel_ids
+        if node_id in panel_ids:
+            return True
+        return bool(children[node_id]) and node_id not in appliance_ids
 
     for node_id, node in nodes.items():
         node["has_children"] = bool(children[node_id])
         node["manual_panel"] = node_id in panel_ids
+        node["manual_appliance"] = node_id in appliance_ids
         node["is_panel"] = _is_panel(node_id)
         node["tier"] = _depth(nodes, node_id)
         rooms: list[str] = []

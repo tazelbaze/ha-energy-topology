@@ -306,16 +306,17 @@ class EnergyTopologyPanel extends HTMLElement {
   // ---- read-only render ---------------------------------------------------
 
   _control(node) {
-    if (!this._isAdmin || node.has_children) return "";
-    if (node.manual_panel) {
-      return `<button class="mark active" data-act="mark" data-id="${ESC(node.id)}" data-panel="false" title="Retirer la marque tableau">tableau ✓</button>`;
+    if (!this._isAdmin) return "";
+    if (node.is_panel) {
+      return `<button class="mark active" data-act="mark" data-id="${ESC(node.id)}" data-panel="false" title="Ce n'est pas un tableau (appareil parent)">tableau ✓</button>`;
     }
-    return `<button class="mark" data-act="mark" data-id="${ESC(node.id)}" data-panel="true" title="Marquer comme tableau">+ tableau</button>`;
+    const title = node.has_children ? "Marquer comme tableau (a des enfants)" : "Marquer comme tableau";
+    return `<button class="mark" data-act="mark" data-id="${ESC(node.id)}" data-panel="true" title="${ESC(title)}">+ tableau</button>`;
   }
 
-  _renderChildren(children, ancestry) {
+  _renderChildren(children, ancestry, allowGroup = true) {
     const sorted = this._sortNodes(children);
-    if (!this._groupByRoom) {
+    if (!this._groupByRoom || !allowGroup) {
       return sorted.map((c) => this._renderNode(c, ancestry)).join("");
     }
     // Sub-panels stay as topology nodes; direct appliances group by room.
@@ -362,7 +363,7 @@ class EnergyTopologyPanel extends HTMLElement {
 
     return `<li class="${node.is_panel ? "is-panel" : ""}">
       <details open><summary>${head}</summary>
-      ${node.children.length ? `<ul>${this._renderChildren(node.children, next)}</ul>` : ""}
+      ${node.children.length ? `<ul>${this._renderChildren(node.children, next, node.is_panel)}</ul>` : ""}
       </details></li>`;
   }
 

@@ -18,37 +18,61 @@ STORAGE_VERSION = 1
 
 
 class PanelStore:
-    """Store the set of statistic ids manually marked as panels/zones."""
+    """Store manual overrides deciding whether a node is a panel/zone.
+
+    Two sets are kept:
+    - ``panels``: ids forced to be a panel even with no children (an empty
+      sub-meter).
+    - ``appliances``: ids forced to NOT be a panel even with children (e.g. a
+      smart plug measuring a device plugged into it: a parent for double-count
+      purposes, but not an electrical panel).
+    """
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the store."""
         self._store: Store[dict] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-        self._ids: set[str] = set()
+        self._panels: set[str] = set()
+        self._appliances: set[str] = set()
 
     async def async_load(self) -> None:
         """Load marks from disk."""
-        data = await self._store.async_load()
-        self._ids = set((data or {}).get("panels", []))
+        data = await self._store.async_load() or {}
+        self._panels = set(data.get("panels", []))
+        self._appliances = set(data.get("appliances", []))
 
     @property
-    def ids(self) -> set[str]:
-        """Return a copy of the marked ids."""
-        return set(self._ids)
+    def panel_ids(self) -> set[str]:
+        """Ids forced to be panels."""
+        return set(self._panels)
+
+    @property
+    def appliance_ids(self) -> set[str]:
+        """Ids forced to not be panels."""
+        return set(self._appliances)
+
+    async def _save(self) -> None:
+        await self._store.async_save(
+            {"panels": sorted(self._panels), "appliances": sorted(self._appliances)}
+        )
 
     async def async_set(self, statistic_id: str, is_panel: bool) -> None:
-        """Mark or unmark a statistic id as a panel and persist."""
+        """Force a node to be a panel (True) or an appliance (False)."""
         if is_panel:
-            self._ids.add(statistic_id)
+            self._panels.add(statistic_id)
+            self._appliances.discard(statistic_id)
         else:
-            self._ids.discard(statistic_id)
-        await self._store.async_save({"panels": sorted(self._ids)})
+            self._panels.discard(statistic_id)
+            self._appliances.add(statistic_id)
+        await self._save()
 
     async def async_prune(self, valid_ids: set[str]) -> None:
         """Drop marks that no longer match an existing statistic id."""
-        pruned = self._ids & valid_ids
-        if pruned != self._ids:
-            self._ids = pruned
-            await self._store.async_save({"panels": sorted(self._ids)})
+        panels = self._panels & valid_ids
+        appliances = self._appliances & valid_ids
+        if panels != self._panels or appliances != self._appliances:
+            self._panels = panels
+            self._appliances = appliances
+            await self._save()
 
 
 class SnapshotStore:

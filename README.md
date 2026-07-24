@@ -97,6 +97,9 @@ water consumption are preserved.
   in `device_consumption` (heuristic, deduped by device).
 - **v0.9** — *(done)* optional room grouping under each panel (display-only
   accordions; sub-panels stay topology nodes).
+- **v0.10** — *(done)* "not a panel" override: a node can be a parent (for
+  double-count, e.g. a smart plug measuring a device) without being styled as a
+  panel.
 - **v1.0** — HACS default-repository publication.
 
 ## Contributing / feedback
